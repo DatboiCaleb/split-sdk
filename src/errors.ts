@@ -1100,17 +1100,6 @@ export class CommitmentGenerationError extends StellarSplitError {
   constructor(message: string) {
     super(message, "COMMITMENT_GENERATION_ERROR", undefined, message);
     this.name = "CommitmentGenerationError";
-// IPFS-related errors
-// ---------------------------------------------------------------------------
-
-/** Thrown when IPFS pinning operation fails. */
-export class IPFSPinError extends StellarSplitError {
-  readonly url?: string;
-
-  constructor(message: string, url?: string) {
-    super(message, "IPFS_PIN_ERROR", { url }, message);
-    this.name = "IPFSPinError";
-    this.url = url;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -1127,18 +1116,6 @@ export class BlindingFactorStorageError extends StellarSplitError {
     super(message, "BLINDING_FACTOR_STORAGE_ERROR", { invoiceId }, message);
     this.name = "BlindingFactorStorageError";
     this.invoiceId = invoiceId;
-export function isIPFSPinError(err: unknown): err is IPFSPinError {
-  return err instanceof IPFSPinError;
-}
-
-/** Thrown when IPFS content fetch fails. */
-export class IPFSFetchError extends StellarSplitError {
-  readonly cid: string;
-
-  constructor(message: string, cid: string) {
-    super(message, "IPFS_FETCH_ERROR", { cid }, message);
-    this.name = "IPFSFetchError";
-    this.cid = cid;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -1159,6 +1136,62 @@ export class BlindingFactorNotFoundError extends StellarSplitError {
     );
     this.name = "BlindingFactorNotFoundError";
     this.invoiceId = invoiceId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isBlindingFactorNotFoundError(err: unknown): err is BlindingFactorNotFoundError {
+  return err instanceof BlindingFactorNotFoundError;
+}
+
+/** Thrown when blinding factor decryption fails. */
+export class BlindingFactorDecryptionError extends StellarSplitError {
+  readonly invoiceId?: string;
+
+  constructor(message: string, invoiceId?: string) {
+    super(message, "BLINDING_FACTOR_DECRYPTION_ERROR", { invoiceId }, message);
+    this.name = "BlindingFactorDecryptionError";
+    this.invoiceId = invoiceId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isBlindingFactorDecryptionError(err: unknown): err is BlindingFactorDecryptionError {
+  return err instanceof BlindingFactorDecryptionError;
+}
+
+// ---------------------------------------------------------------------------
+// IPFS-related errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when IPFS pinning operation fails. */
+export class IPFSPinError extends StellarSplitError {
+  readonly url?: string;
+
+  constructor(message: string, url?: string) {
+    super(message, "IPFS_PIN_ERROR", { url }, message);
+    this.name = "IPFSPinError";
+    this.url = url;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isIPFSPinError(err: unknown): err is IPFSPinError {
+  return err instanceof IPFSPinError;
+}
+
+/** Thrown when IPFS content fetch fails. */
+export class IPFSFetchError extends StellarSplitError {
+  readonly cid: string;
+
+  constructor(message: string, cid: string) {
+    super(message, "IPFS_FETCH_ERROR", { cid }, message);
+    this.name = "IPFSFetchError";
+    this.cid = cid;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export function isIPFSFetchError(err: unknown): err is IPFSFetchError {
   return err instanceof IPFSFetchError;
 }
@@ -1180,18 +1213,6 @@ export class CIDMismatchError extends StellarSplitError {
   }
 }
 
-export function isBlindingFactorNotFoundError(err: unknown): err is BlindingFactorNotFoundError {
-  return err instanceof BlindingFactorNotFoundError;
-}
-
-/** Thrown when blinding factor decryption fails. */
-export class BlindingFactorDecryptionError extends StellarSplitError {
-  readonly invoiceId?: string;
-
-  constructor(message: string, invoiceId?: string) {
-    super(message, "BLINDING_FACTOR_DECRYPTION_ERROR", { invoiceId }, message);
-    this.name = "BlindingFactorDecryptionError";
-    this.invoiceId = invoiceId;
 export function isCIDMismatchError(err: unknown): err is CIDMismatchError {
   return err instanceof CIDMismatchError;
 }
@@ -1205,8 +1226,6 @@ export class IPFSConfigError extends StellarSplitError {
   }
 }
 
-export function isBlindingFactorDecryptionError(err: unknown): err is BlindingFactorDecryptionError {
-  return err instanceof BlindingFactorDecryptionError;
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }

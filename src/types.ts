@@ -449,6 +449,8 @@ export interface InvoiceLifecycleHooks {
   onReleased?: (invoice: Invoice) => void;
   onRefunded?: (invoice: Invoice) => void;
   onCancelled?: (invoice: Invoice) => void;
+}
+
 /** Result of previewing a token swap via DEX contract. */
 export interface PreviewTokenSwapResult {
   /** Estimated output amount from the swap in stroops. */
@@ -1159,6 +1161,8 @@ export interface RevealPaymentOptions {
   blindingFactor: Buffer;
   /** Payer's Stellar address. */
   payer: string;
+}
+
 // IPFS Invoice Metadata Types
 // ---------------------------------------------------------------------------
 

@@ -170,7 +170,7 @@ export {
 export { getScheduledReleaseCountdown } from "./client.js";
 export { verifyCompletionProof } from "./client.js";
 export { MultiTenantClient } from "./multiTenant.js";
-export type { PoolOptions, PoolStats } from "./multiTenant.js";
+export type { PoolOptions } from "./multiTenant.js";
 export { ProfilerSession } from "./profiler.js";
 export type {
   ProfileReport,
@@ -183,9 +183,6 @@ export type {
   SpeedscopeEvent,
   ProfilerSessionOptions,
 } from "./profiler.js";
-export { enrichInvoice, registerInvoiceFetcher } from "./enricher.js";
-export type { EnrichedInvoice } from "./enricher.js";
-export type { ProfileReport } from "./profiler.js";
 export {
   enrichInvoice,
   enrichInvoices,
@@ -614,49 +611,6 @@ export type {
   EventSourceLike,
 } from "./sse.js";
 export type { PollingInvoiceEventHandler } from "./stream.js";
-
-// Real-time invoice event subscription (Issue #417)
-export { createInvoiceSubscription } from "./subscription.js";
-export type {
-  SubscriptionLifecycleCallback,
-  InvoiceEventCallback,
-} from "./subscription.js";
-export {
-  isInvoicePaymentEvent,
-  isInvoiceReleasedEvent,
-  isInvoiceRefundedEvent,
-  isInvoiceCancelledEvent,
-  isInvoiceFrozenEvent,
-  isInvoiceUnfrozenEvent,
-  isInvoiceCreatedEvent,
-} from "./subscription.js";
-export type {
-  InvoiceEvent,
-  InvoiceCreatedEvent,
-  InvoicePaymentEvent,
-  InvoiceReleasedEvent,
-  InvoiceRefundedEvent,
-  InvoiceCancelledEvent,
-  InvoiceFrozenEvent,
-  InvoiceUnfrozenEvent,
-  DisputeOpenedEvent,
-  DisputeResolvedEvent,
-  SplitRulesUpdatedEvent,
-  AutoResolveRulesUpdatedEvent,
-  VelocityLimitUpdatedEvent,
-  PrerequisiteAddedEvent,
-  PrerequisiteRemovedEvent,
-  ForwardChainCreatedEvent,
-  ScheduledReleaseSetEvent,
-  PenaltyTiersUpdatedEvent,
-  AllowedCallersUpdatedEvent,
-  NftGateSetEvent,
-  NftGateRemovedEvent,
-  BaseInvoiceEvent,
-  Subscription,
-  SubscriptionOptions,
-  SubscriptionLifecycleEvent,
-} from "./types.js";
 
 // WebSocket transport (Issue #377)
 export { WebSocketTransport } from "./websocket.js";

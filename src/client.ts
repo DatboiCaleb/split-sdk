@@ -272,8 +272,6 @@ export interface StellarSplitClientConfig {
   hooks?: import("./types.js").InvoiceLifecycleHooks;
   /** Optional request/response compression middleware. Disabled by default. */
   compression?: CompressionConfig;
-  /** Optional invoice lifecycle hooks. */
-  hooks?: InvoiceLifecycleHooks;
   /** Optional retry configuration. Enables automatic retry with exponential backoff and jitter. */
   retry?: RetryOptions;
   /**
@@ -514,10 +512,6 @@ export class StellarSplitClient extends EventEmitter {
   private _rpcClient: IRPCClient | null = null;
   private _adapter: WalletAdapter | null = null;
   private _hooks: import("./types.js").InvoiceLifecycleHooks = {};
-
-  private get server(): SorobanRpc.Server {
-    return this._rpcClient ?? this._standby?.server ?? this._mainServer;
-  private _hooks: InvoiceLifecycleHooks = {};
   private _retryOptions: RetryOptions | null = null;
   private _horizonReader: HorizonFallbackReader | null = null;
   private _idempotency: IdempotencyManager | null = null;
