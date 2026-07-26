@@ -67,6 +67,9 @@ import type {
 } from "./resilience/CircuitBreaker.js";
 import type { WaterfallPlan } from "./types/routing.js";
 import { WaterfallInsufficientFundsError } from "./errors.js";
+import { OptimisticCache } from "./cache/OptimisticCache.js";
+import type { CommitFn, RollbackFn } from "./cache/OptimisticCache.js";
+import { getOptimisticInvoice } from "./optimistic.js";
 import type {
   ArchivedInvoice,
 
@@ -404,6 +407,12 @@ export interface StellarSplitClientConfig {
    * runtime via `client.circuitBreaker.getState()`.
    */
   advancedCircuitBreaker?: Partial<AdvancedCircuitBreakerOptions>;
+  /**
+   * When true, `pay()` applies a predicted Invoice update immediately on
+   * submission and `getInvoice()` returns it until the transaction settles,
+   * instead of returning stale data while the transaction is pending.
+   */
+  optimisticCache?: boolean;
 }
 
 /** Network configuration. */
@@ -560,6 +569,8 @@ export class StellarSplitClient extends EventEmitter {
    * configs keep working unchanged; enable via `advancedCircuitBreaker`.
    */
   private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
+  /** Optimistic UI cache for Invoice reads during a pending pay() call. */
+  private _optimisticCache: OptimisticCache<Invoice> | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private get server(): any {
@@ -682,6 +693,10 @@ export class StellarSplitClient extends EventEmitter {
       this._advancedCircuitBreaker = new AdvancedCircuitBreaker(config.advancedCircuitBreaker, {
         warn: (event) => this.emit("circuit_state_change", event),
       });
+    }
+
+    if (config.optimisticCache) {
+      this._optimisticCache = new OptimisticCache<Invoice>();
     }
 
     if (
@@ -1523,6 +1538,22 @@ export class StellarSplitClient extends EventEmitter {
   async pay(params: PayParams): Promise<TxResult> {
     const startTime = Date.now();
     params = this._pluginRegistry.runBeforeCall("pay", params);
+
+    let optimistic: { commit: CommitFn; rollback: RollbackFn } | null = null;
+    if (this._optimisticCache) {
+      const current = this._cache?.get(`getInvoice:${JSON.stringify([params.invoiceId])}`) as
+        | Invoice
+        | undefined;
+      if (current) {
+        const predicted = getOptimisticInvoice(current, {
+          payer: params.payer,
+          amount: params.amount,
+          donateOnFailure: params.donateOnFailure,
+        });
+        optimistic = this._optimisticCache.applyOptimistic(params.invoiceId, predicted, current);
+      }
+    }
+
     try {
       const operation = this.contract.call(
         "pay",
@@ -1537,11 +1568,13 @@ export class StellarSplitClient extends EventEmitter {
         ? await executeWithRetry(submitFn, this._retryOptions)
         : await withRetry(submitFn, this.config.maxRetries ?? 3, 1000);
       this._cache?.invalidate(params.invoiceId);
+      optimistic?.commit();
       telemetry.recordMethod("pay", true, Date.now() - startTime);
       return this._pluginRegistry.runAfterCall("pay", {
         txHash: result.txHash,
       });
     } catch (error) {
+      optimistic?.rollback();
       telemetry.recordMethod("pay", false, Date.now() - startTime);
       this._pluginRegistry.runOnError("pay", error);
       throw error;
@@ -1762,6 +1795,11 @@ export class StellarSplitClient extends EventEmitter {
     invoiceId: string,
     opts?: { retry?: PerMethodRetryOptions; dedupe?: boolean; traceId?: string; timeout?: number }
   ): Promise<Invoice> {
+    const optimistic = this._optimisticCache?.get(invoiceId);
+    if (optimistic !== undefined) {
+      return optimistic;
+    }
+
     return this._withCache("getInvoice", [invoiceId], async () => {
 
       const fetcher = this._batcher
@@ -1829,6 +1867,15 @@ export class StellarSplitClient extends EventEmitter {
    */
   get circuitBreaker(): { getState(): CircuitBreakerStateSnapshot } | null {
     return this._advancedCircuitBreaker;
+  }
+
+  /**
+   * The optimistic UI cache, or null when `optimisticCache` was not passed
+   * to the constructor. Use `client.optimisticCache?.onRollback(...)` to
+   * react to a prediction being reverted after a failed transaction.
+   */
+  get optimisticCache(): OptimisticCache<Invoice> | null {
+    return this._optimisticCache;
   }
 
   /**

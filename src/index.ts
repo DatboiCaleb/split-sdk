@@ -775,3 +775,10 @@ export type {
 
 export { WaterfallRouter } from "./routing/WaterfallRouter.js";
 export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } from "./types/routing.js";
+
+// ---------------------------------------------------------------------------
+// Optimistic UI cache
+// ---------------------------------------------------------------------------
+
+export { OptimisticCache } from "./cache/OptimisticCache.js";
+export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
