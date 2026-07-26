@@ -756,3 +756,15 @@ export type { EventCursor, SubscriptionManagerLifecycleEvent } from "./types/eve
 export type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
 export { createStorageAdapter, MemoryStorageAdapter } from "./storage/storageAdapter.js";
 export type { StorageAdapter, StorageKind } from "./storage/storageAdapter.js";
+
+// ---------------------------------------------------------------------------
+// Resilience (advanced CircuitBreaker)
+// ---------------------------------------------------------------------------
+
+export { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
+export type {
+  CircuitState as AdvancedCircuitState,
+  CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
+  CircuitBreakerStateSnapshot as AdvancedCircuitBreakerStateSnapshot,
+  CircuitBreakerLogger as AdvancedCircuitBreakerLogger,
+} from "./resilience/CircuitBreaker.js";

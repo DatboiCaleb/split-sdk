@@ -60,6 +60,11 @@ import { createInvoiceSubscription } from "./subscription.js";
 import type { Subscription, InvoiceEvent, SubscriptionOptions } from "./types.js";
 import { getSubscriptionManager } from "./streaming/SubscriptionManager.js";
 import type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
+import { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
+import type {
+  CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
+  CircuitBreakerStateSnapshot,
+} from "./resilience/CircuitBreaker.js";
 import type {
   ArchivedInvoice,
 
@@ -389,6 +394,14 @@ export interface StellarSplitClientConfig {
     /** Retry settings applied per RPC call (maxRetries, baseDelayMs, etc.). */
     retry?: Partial<ResilientRetryConfig>;
   };
+  /**
+   * Optional configuration for the CLOSED/OPEN/HALF_OPEN circuit breaker
+   * (src/resilience/CircuitBreaker.ts) guarding the transaction-submission
+   * path. When OPEN, `pay()` and other write methods fail fast with
+   * CircuitOpenError instead of hanging until RPC timeout. Exposed at
+   * runtime via `client.circuitBreaker.getState()`.
+   */
+  advancedCircuitBreaker?: Partial<AdvancedCircuitBreakerOptions>;
 }
 
 /** Network configuration. */
@@ -538,6 +551,13 @@ export class StellarSplitClient extends EventEmitter {
   private _adminKeypair: Keypair | null = null;
   /** Resilient RPC wrapper providing retry + circuit breaker for all RPC calls. */
   private _resilientRpc: ResilientRpcClient | null = null;
+  /**
+   * Optional secondary circuit breaker (src/resilience/CircuitBreaker.ts)
+   * guarding the transaction-submission path (`_submitTx`). Distinct from
+   * `_resilientRpc`'s breaker so existing `circuitBreaker: { breaker, retry }`
+   * configs keep working unchanged; enable via `advancedCircuitBreaker`.
+   */
+  private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private get server(): any {
@@ -654,6 +674,12 @@ export class StellarSplitClient extends EventEmitter {
       this._resilientRpc.on("circuit:open", () => this.emit("circuit:open"));
       this._resilientRpc.on("circuit:close", () => this.emit("circuit:close"));
       this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open"));
+    }
+
+    if (config.advancedCircuitBreaker) {
+      this._advancedCircuitBreaker = new AdvancedCircuitBreaker(config.advancedCircuitBreaker, {
+        warn: (event) => this.emit("circuit_state_change", event),
+      });
     }
 
     if (
@@ -1668,6 +1694,16 @@ export class StellarSplitClient extends EventEmitter {
    */
   unsubscribe(invoiceId: string): void {
     getSubscriptionManager(this.server, this.config.contractId).unsubscribe(invoiceId);
+  }
+
+  /**
+   * The advanced CLOSED/OPEN/HALF_OPEN circuit breaker guarding
+   * transaction submission, or null when `advancedCircuitBreaker` was not
+   * passed to the constructor. Use `client.circuitBreaker.getState()` to
+   * inspect the current state for dashboards/alerting.
+   */
+  get circuitBreaker(): { getState(): CircuitBreakerStateSnapshot } | null {
+    return this._advancedCircuitBreaker;
   }
 
   /**
@@ -4513,8 +4549,13 @@ export class StellarSplitClient extends EventEmitter {
         }
       }
 
+      const submit = () =>
+        this._advancedCircuitBreaker
+          ? this._advancedCircuitBreaker.execute(() => this._doSubmitTx(sourceAddress, operation))
+          : this._doSubmitTx(sourceAddress, operation);
+
       try {
-        const result = await this._doSubmitTx(sourceAddress, operation);
+        const result = await submit();
         if (this._idempotency) {
           const opXdr = operation.toXDR().toString("base64");
           const key = this._idempotency.generateKey(sourceAddress, opXdr);
@@ -4524,7 +4565,7 @@ export class StellarSplitClient extends EventEmitter {
       } catch (error) {
         if (this._standby) {
           this._standby.failover();
-          const result = await this._doSubmitTx(sourceAddress, operation);
+          const result = await submit();
           if (this._idempotency) {
             const opXdr = operation.toXDR().toString("base64");
             const key = this._idempotency.generateKey(sourceAddress, opXdr);
