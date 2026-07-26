@@ -58,6 +58,8 @@ import { resolveToken } from "./token.js";
 import type { PaymentReceipt } from "./receipt.js";
 import { createInvoiceSubscription } from "./subscription.js";
 import type { Subscription, InvoiceEvent, SubscriptionOptions } from "./types.js";
+import { getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+import type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
 import type {
   ArchivedInvoice,
 
@@ -1609,7 +1611,6 @@ export class StellarSplitClient extends EventEmitter {
     invoiceId: string,
     opts?: { retry?: PerMethodRetryOptions; dedupe?: boolean; traceId?: string; timeout?: number }
   ): Promise<Invoice> {
-
     return this._withCache("getInvoice", [invoiceId], async () => {
 
       const fetcher = this._batcher
@@ -1637,6 +1638,36 @@ export class StellarSplitClient extends EventEmitter {
    */
   getDedupStats(): { deduped: number; total: number } {
     return this._dedup.getDedupStats();
+  }
+
+  /**
+   * Subscribe to typed InvoiceEvent payloads for a single invoice via the
+   * shared SubscriptionManager, instead of polling fetch methods. The first
+   * call for a given invoice ID starts the manager's poll-then-push bridge
+   * and restores any cursor persisted from a previous session/tab, so
+   * events emitted during an outage are replayed on reconnect.
+   *
+   * @param invoiceId - The invoice ID to watch.
+   * @param handler   - Called with each typed InvoiceEvent as it arrives.
+   * @param opts      - Optional per-subscription overrides (poll interval, backoff, storage).
+   * @returns Unsubscribe function scoped to this handler only.
+   */
+  subscribe(
+    invoiceId: string,
+    handler: (event: InvoiceEvent) => void,
+    opts?: SubscriptionManagerOptions,
+  ): () => void {
+    const manager = getSubscriptionManager(this.server, this.config.contractId, opts);
+    return manager.subscribe(invoiceId, handler, opts);
+  }
+
+  /**
+   * Stop receiving InvoiceEvents for an invoice ID. Removes every handler
+   * registered via `subscribe()` for that invoice and releases the
+   * underlying poll timer.
+   */
+  unsubscribe(invoiceId: string): void {
+    getSubscriptionManager(this.server, this.config.contractId).unsubscribe(invoiceId);
   }
 
   /**

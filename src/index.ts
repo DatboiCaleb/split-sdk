@@ -746,3 +746,13 @@ export type {
   BridgePaymentRequest,
   SignedBridgeProof,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Streaming subscriptions (SubscriptionManager)
+// ---------------------------------------------------------------------------
+
+export { SubscriptionManager, getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+export type { EventCursor, SubscriptionManagerLifecycleEvent } from "./types/events.js";
+export type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
+export { createStorageAdapter, MemoryStorageAdapter } from "./storage/storageAdapter.js";
+export type { StorageAdapter, StorageKind } from "./storage/storageAdapter.js";
