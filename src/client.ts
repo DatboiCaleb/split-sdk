@@ -65,6 +65,8 @@ import type {
   CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
   CircuitBreakerStateSnapshot,
 } from "./resilience/CircuitBreaker.js";
+import type { WaterfallPlan } from "./types/routing.js";
+import { WaterfallInsufficientFundsError } from "./errors.js";
 import type {
   ArchivedInvoice,
 
@@ -1544,6 +1546,129 @@ export class StellarSplitClient extends EventEmitter {
       this._pluginRegistry.runOnError("pay", error);
       throw error;
     }
+  }
+
+  /**
+   * Submit a payment, optionally routed through a WaterfallPlan
+   * (see WaterfallRouter.plan()) instead of the default single-amount
+   * round-robin split. When a plan is supplied, one `pay` operation per
+   * satisfied tier is built and submitted in a single transaction envelope,
+   * in the plan's declared priority order.
+   *
+   * @param params.waterfallPlan - Plan produced by `WaterfallRouter.plan()`.
+   * @param params.allowPartial  - Submit even if the plan has unsatisfied tiers.
+   *   Defaults to the value carried on the plan itself (`plan.allowPartial`).
+   * @throws WaterfallInsufficientFundsError if any tier is unsatisfied and
+   *   partial submission wasn't allowed.
+   */
+  async submitPayment(params: {
+    invoiceId: string;
+    payer: string;
+    amount: bigint;
+    donateOnFailure?: boolean;
+    waterfallPlan?: WaterfallPlan;
+    allowPartial?: boolean;
+  }): Promise<TxResult> {
+    if (!params.waterfallPlan) {
+      return this.pay({
+        payer: params.payer,
+        invoiceId: params.invoiceId,
+        amount: params.amount,
+        donateOnFailure: params.donateOnFailure,
+      });
+    }
+
+    const plan = params.waterfallPlan;
+    const allowPartial = params.allowPartial ?? plan.allowPartial ?? false;
+    const hasUnsatisfiedTier = plan.steps.some((step) => !step.satisfied);
+    if (hasUnsatisfiedTier && !allowPartial) {
+      throw new WaterfallInsufficientFundsError(params.invoiceId, {
+        unsatisfiedTiers: plan.steps.filter((s) => !s.satisfied).map((s) => s.recipient),
+      });
+    }
+
+    const fundedSteps = plan.steps.filter((step) => step.satisfied && step.amount > 0n);
+    if (fundedSteps.length === 0) {
+      throw new WaterfallInsufficientFundsError(params.invoiceId);
+    }
+
+    const operations = fundedSteps.map((step) =>
+      this.contract.call(
+        "pay",
+        nativeToScVal(params.payer, { type: "address" }),
+        nativeToScVal(BigInt(params.invoiceId), { type: "u64" }),
+        nativeToScVal(step.amount, { type: "i128" }),
+        nativeToScVal(params.donateOnFailure ?? false, { type: "bool" }),
+      ),
+    );
+
+    const result = await this._submitWaterfallTx(params.payer, operations);
+    this._cache?.invalidate(params.invoiceId);
+    return { txHash: result.txHash };
+  }
+
+  /**
+   * Build and submit a single transaction envelope containing one contract
+   * operation per waterfall step, preserving priority order.
+   */
+  private async _submitWaterfallTx(
+    sourceAddress: string,
+    operations: xdr.Operation[],
+  ): Promise<{ txHash: string; returnValue: xdr.ScVal }> {
+    const account = await this.server.getAccount(sourceAddress);
+    const builder = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    });
+    for (const operation of operations) {
+      builder.addOperation(operation);
+    }
+    const tx = builder.setTimeout(30).build();
+
+    const submit = () => this._doSubmitWaterfallSend(tx, sourceAddress);
+    return this._advancedCircuitBreaker ? this._advancedCircuitBreaker.execute(submit) : submit();
+  }
+
+  private async _doSubmitWaterfallSend(
+    tx: Transaction,
+    sourceAddress: string,
+  ): Promise<{ txHash: string; returnValue: xdr.ScVal }> {
+    const simResult = await this.server.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(simResult)) {
+      throw parseSorobanError(simResult.error);
+    }
+
+    const preparedTx = SorobanRpc.assembleTransaction(tx, simResult).build();
+    const signedXdr = await (this._adapter
+      ? this._adapter.signTransaction(preparedTx.toXDR(), this.config.networkPassphrase)
+      : signTransaction(preparedTx.toXDR(), this.config.networkPassphrase));
+
+    const sendResult = await this.server.sendTransaction(
+      TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase),
+    );
+    if (sendResult.status === "ERROR") {
+      throw new TransactionFailedError(
+        `Waterfall transaction failed: ${JSON.stringify(sendResult.errorResult)}`,
+        sendResult.hash,
+        JSON.stringify(sendResult.errorResult),
+      );
+    }
+
+    const txHash = sendResult.hash;
+    let getResult = await this.server.getTransaction(txHash);
+    let attempts = 0;
+    while (getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND && attempts < 20) {
+      await new Promise((r) => setTimeout(r, 1500));
+      getResult = await this.server.getTransaction(txHash);
+      attempts++;
+    }
+    if (getResult.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      throw new TransactionNotConfirmedError(String(getResult.status));
+    }
+
+    const returnValue =
+      (getResult as SorobanRpc.Api.GetSuccessfulTransactionResponse).returnValue ?? xdr.ScVal.scvVoid();
+    return { txHash, returnValue };
   }
 
   /**

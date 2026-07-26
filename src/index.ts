@@ -768,3 +768,10 @@ export type {
   CircuitBreakerStateSnapshot as AdvancedCircuitBreakerStateSnapshot,
   CircuitBreakerLogger as AdvancedCircuitBreakerLogger,
 } from "./resilience/CircuitBreaker.js";
+
+// ---------------------------------------------------------------------------
+// Waterfall payment routing
+// ---------------------------------------------------------------------------
+
+export { WaterfallRouter } from "./routing/WaterfallRouter.js";
+export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } from "./types/routing.js";
