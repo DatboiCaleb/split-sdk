@@ -489,6 +489,27 @@ export type {
   SandboxLedgerDiff,
 } from "./sandbox/SimulationSandbox.js";
 
+// Horizon SSE stream manager — cursor-bookmarked payments/operations
+// streaming with reconnect-and-resume, dedupe, and replay cutoff.
+export {
+  HorizonStreamManager,
+  InMemoryCursorStore,
+  createLocalStorageCursorStore,
+  createSessionStorageCursorStore,
+  DEFAULT_REPLAY_CUTOFF_MS,
+  DEFAULT_DEDUPE_BUFFER_SIZE,
+  DEFAULT_RECONNECT_DELAY_MS,
+} from "./horizon/HorizonStreamManager.js";
+export type {
+  HorizonStreamRecord,
+  HorizonCallBuilderLike,
+  HorizonStreamSource,
+  CursorStore,
+  HorizonStreamKind,
+  HorizonStreamManagerConfig,
+  HorizonStreamEventMap,
+} from "./horizon/HorizonStreamManager.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
