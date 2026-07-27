@@ -520,6 +520,25 @@ export type { AdaptiveThrottleConfig, ThrottleStats } from "./throttle/AdaptiveT
 export { parseRateLimitHeaders } from "./throttle/RateLimitParser.js";
 export type { HeadersLike, RateLimitInfo } from "./throttle/RateLimitParser.js";
 
+// Receipt chain — SHA-256-linked, tamper-evident payment receipt history
+// per invoice. `PaymentReceipt` is aliased to `ChainPaymentReceipt` here to
+// avoid colliding with the unrelated `PaymentReceipt` already exported from
+// receipt.js (a compiled multi-payment summary receipt).
+export {
+  ReceiptChain,
+  GENESIS_PREV_HASH,
+  InMemoryReceiptChainStorage,
+  createLocalStorageReceiptChainStorage,
+  createSessionStorageReceiptChainStorage,
+  receiptChainStorageKey,
+} from "./receipts/ReceiptChain.js";
+export type { ReceiptChainStorage } from "./receipts/ReceiptChain.js";
+export type {
+  PaymentReceipt as ChainPaymentReceipt,
+  ReceiptChainEntry,
+  ChainVerificationResult,
+} from "./types/receipts.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
