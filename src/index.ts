@@ -746,3 +746,14 @@ export type {
   BridgePaymentRequest,
   SignedBridgeProof,
 } from "./types.js";
+
+// Timeline reconstructor
+export { PaymentTimelineReconstructor } from "./timeline/PaymentTimelineReconstructor.js";
+export type {
+  TimelineEntry,
+  TimelineEventType,
+  TimelineSource,
+  ReconstructedTimeline,
+  RebuildOptions,
+} from "./types/timeline.js";
+export type { PaymentTimelineReconstructorConfig } from "./timeline/PaymentTimelineReconstructor.js";
