@@ -252,6 +252,33 @@ export interface StellarSplitPlugin {
    */
   onDestroy?(client: StellarSplitClient): void | Promise<void>;
 }
+/**
+   * Internal startup validation. Throws PassphraseMismatchError if 
+   * the configured passphrase doesn't match the RPC node.
+   */
+  private async _validateStartupConfig(): Promise<void> {
+    const primaryUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0]! : this.config.rpcUrl;
+    const result = await NetworkPassphraseValidator.validate(
+      this.config.networkPassphrase,
+      primaryUrl
+    );
+    if (result.mismatch) {
+      throw new PassphraseMismatchError(result.configured, result.reported);
+    }
+  }
+
+  /**
+   * Live network switcher. Migrates state and re-subscribes.
+   * @param network - 'mainnet' | 'testnet' | 'futurenet'
+   */
+  public async switchTo(network: 'mainnet' | 'testnet' | 'futurenet'): Promise<void> {
+    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
+    return NetworkSwitcher.switchTo(network, this);
+  }
+/** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
+  validatePassphrase?: boolean;
+  /** Map of available networks for the live switcher. */
+  networks?: Record<string, NetworkConfig>;
 
 /** Configuration for StellarSplitClient. */
 export interface StellarSplitClientConfig {
@@ -520,6 +547,10 @@ export function verifyCompletionProof(proof: CompletionProof): {
   }
   return { valid: true };
 }
+// ... end of constructor logic
+    if (config.validatePassphrase !== false) {
+      this._validateStartupConfig();
+    }
 
 export class StellarSplitClient extends EventEmitter {
   private _mainServer!: SorobanRpc.Server;

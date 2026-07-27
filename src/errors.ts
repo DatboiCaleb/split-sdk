@@ -1246,6 +1246,17 @@ export class IPFSConfigError extends StellarSplitError {
   }
 }
 
+export class PassphraseMismatchError extends StellarSplitError {
+  constructor(configured: string, reported: string) {
+    super(
+      `Network Passphrase Mismatch: Configured [${configured}] but RPC node reported [${reported}].`,
+      "PASSPHRASE_MISMATCH",
+      { configured, reported }
+    );
+    this.name = "PassphraseMismatchError";
+  }
+}
+
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }
