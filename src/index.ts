@@ -166,7 +166,17 @@ export {
   isCIDMismatchError,
   IPFSConfigError,
   isIPFSConfigError,
+  ShutdownInProgressError,
+  isShutdownInProgressError,
 } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Lifecycle management (graceful shutdown)
+// ---------------------------------------------------------------------------
+
+export { GracefulShutdownHandler, ShutdownTimeoutError } from "./lifecycle/GracefulShutdownHandler.js";
+export type { ShutdownOptions, TimeoutAction } from "./lifecycle/GracefulShutdownHandler.js";
+
 export { getScheduledReleaseCountdown } from "./client.js";
 export { verifyCompletionProof } from "./client.js";
 export { MultiTenantClient } from "./multiTenant.js";

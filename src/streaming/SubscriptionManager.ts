@@ -292,6 +292,19 @@ export function getSubscriptionManager(
   return singleton;
 }
 
+/**
+ * Destroy the shared SubscriptionManager when it exists for `contractId`.
+ * Returns true when a live singleton was found and torn down.
+ */
+export function destroySubscriptionManager(contractId?: string): boolean {
+  if (!singleton) return false;
+  if (contractId && singletonContractId !== contractId) return false;
+  singleton.destroy();
+  singleton = null;
+  singletonContractId = null;
+  return true;
+}
+
 /** Test-only: reset the module-level singleton between test cases. */
 export function _resetSubscriptionManagerSingletonForTesting(): void {
   singleton?.destroy();
