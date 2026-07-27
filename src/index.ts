@@ -863,3 +863,16 @@ export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js"
 export { TypedEventEmitter, AbortError } from "./events/TypedEventEmitter.js";
 export type { Unsubscribe, EventMap } from "./events/TypedEventEmitter.js";
 export type { SplitClientEventMap } from "./client.js";
+
+// ---------------------------------------------------------------------------
+// Multi-endpoint RPC load balancing
+// ---------------------------------------------------------------------------
+
+export { RpcLoadBalancer } from "./rpc/RpcLoadBalancer.js";
+export type {
+  EndpointConfig,
+  RpcLoadBalancerOptions,
+  RpcEndpointServer,
+  RpcLoadBalancerEventMap,
+  EndpointSnapshot,
+} from "./rpc/RpcLoadBalancer.js";

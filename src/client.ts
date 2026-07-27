@@ -20,6 +20,8 @@ import { TypedEventEmitter } from "./events/TypedEventEmitter.js";
 import type { CircuitStateChangeLogEvent } from "./resilience/CircuitBreaker.js";
 import { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
 import type { StateMachineConfig } from "./types/state.js";
+import { RpcLoadBalancer } from "./rpc/RpcLoadBalancer.js";
+import type { EndpointConfig, RpcLoadBalancerOptions } from "./rpc/RpcLoadBalancer.js";
 
 /** Events emitted by {@link StellarSplitClient}. */
 export type SplitClientEventMap = {
@@ -31,6 +33,10 @@ export type SplitClientEventMap = {
   "circuit:half-open": undefined;
   /** Fired on every advanced circuit breaker state transition. */
   circuit_state_change: CircuitStateChangeLogEvent;
+  /** An RpcLoadBalancer endpoint (from `rpcEndpoints`) was quarantined. */
+  "endpoint:demoted": { url: string; reason: "consecutive_errors" | "failed_health_check" };
+  /** A previously quarantined RpcLoadBalancer endpoint passed its health check and rejoined rotation. */
+  "endpoint:reinstated": { url: string };
 };
 import { signTransaction } from "./wallet.js";
 import { telemetry } from "./telemetry.js";
@@ -440,6 +446,17 @@ export interface StellarSplitClientConfig {
    * (Pending -> Released | Refunded | Cancelled; the rest are terminal).
    */
   stateMachine?: StateMachineConfig;
+  /**
+   * Optional list of Soroban RPC endpoints to distribute calls across via
+   * health-weighted round-robin ({@link RpcLoadBalancer}). When provided,
+   * this takes priority over `rpcUrl` for selecting the primary server;
+   * endpoints that error repeatedly or exceed their latency budget are
+   * quarantined and automatically reinstated after a passing health check.
+   * When omitted, the existing single/array `rpcUrl` behavior is unchanged.
+   */
+  rpcEndpoints?: EndpointConfig[];
+  /** Optional tuning for the {@link RpcLoadBalancer} created from `rpcEndpoints`. */
+  rpcLoadBalancer?: RpcLoadBalancerOptions;
 }
 
 /** Network configuration. */
@@ -589,6 +606,8 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _adminKeypair: Keypair | null = null;
   /** Resilient RPC wrapper providing retry + circuit breaker for all RPC calls. */
   private _resilientRpc: ResilientRpcClient | null = null;
+  /** Health-weighted multi-endpoint balancer, present only when `config.rpcEndpoints` is set. */
+  private _rpcLoadBalancer: RpcLoadBalancer | null = null;
   /**
    * Optional secondary circuit breaker (src/resilience/CircuitBreaker.ts)
    * guarding the transaction-submission path (`_submitTx`). Distinct from
@@ -700,9 +719,17 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
     if (config.timeout !== undefined) {
       this._timeoutManager = new TimeoutManager(config.timeout);
     }
-    this._mainServer = new SorobanRpc.Server(primaryUrl, {
-      allowHttp: primaryUrl.startsWith("http://"),
-    });
+    if (config.rpcEndpoints && config.rpcEndpoints.length > 0) {
+      this._rpcLoadBalancer = new RpcLoadBalancer(config.rpcEndpoints, config.rpcLoadBalancer);
+      this._rpcLoadBalancer.on("endpoint:demoted", (event) => this.emit("endpoint:demoted", event));
+      this._rpcLoadBalancer.on("endpoint:reinstated", (event) => this.emit("endpoint:reinstated", event));
+      this._rpcLoadBalancer.start();
+      this._mainServer = this._rpcLoadBalancer.selectEndpoint().server as SorobanRpc.Server;
+    } else {
+      this._mainServer = new SorobanRpc.Server(primaryUrl, {
+        allowHttp: primaryUrl.startsWith("http://"),
+      });
+    }
 
     // Circuit breaker + retry resilience layer (Issue #419)
     if (config.circuitBreaker) {
@@ -1897,6 +1924,16 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   }
 
   /**
+   * The RpcLoadBalancer backing multi-endpoint calls, present only when
+   * `config.rpcEndpoints` was provided. `null` for single-`rpcUrl` configs.
+   * Exposed so consumers can attach `on('endpoint:demoted', ...)` /
+   * `on('endpoint:reinstated', ...)` hooks or inspect `getEndpointStates()`.
+   */
+  get rpcLoadBalancer(): RpcLoadBalancer | null {
+    return this._rpcLoadBalancer;
+  }
+
+  /**
    * Updates an invoice's status, validating the transition through
    * InvoiceStateMachine. Throws InvalidTransitionError (with
    * `{ from, to, allowed }`) if the transition isn't allowed from the
@@ -2381,6 +2418,7 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
       await this._queue.shutdown();
     } finally {
       this._standby?.stop();
+      this._rpcLoadBalancer?.stop();
 
       this._wsTransport?.disconnect();
       this._wsTransport = null;
