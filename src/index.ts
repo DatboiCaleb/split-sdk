@@ -876,3 +876,16 @@ export type {
   RpcLoadBalancerEventMap,
   EndpointSnapshot,
 } from "./rpc/RpcLoadBalancer.js";
+
+// ---------------------------------------------------------------------------
+// Optional OpenTelemetry instrumentation (opt-in via `otel: { enabled: true }`;
+// `@opentelemetry/api` is never required unless a consumer turns this on).
+// ---------------------------------------------------------------------------
+
+export { OtelExporter, createOtelHandle, noopOtelHandle } from "./telemetry/OtelExporter.js";
+export type {
+  TelemetryOptions,
+  OtelHandle,
+  OtelSpanHandle,
+  OtlpTracePayload,
+} from "./telemetry/OtelExporter.js";
