@@ -476,6 +476,19 @@ export type {
 export { generateMerkleProof, verifyMerkleProof } from "./merkle.js";
 export type { MerkleProof } from "./merkle.js";
 
+// Simulation sandbox — fork ledger state via simulateTransaction and run
+// sequences of SDK operations against it without touching the network.
+export { SimulationSandbox } from "./sandbox/SimulationSandbox.js";
+export type {
+  SandboxClient,
+  SimulationCost,
+  SimulationResult,
+  SandboxInvoiceRecord,
+  SandboxPaymentRecord,
+  SandboxCallLogEntry,
+  SandboxLedgerDiff,
+} from "./sandbox/SimulationSandbox.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
