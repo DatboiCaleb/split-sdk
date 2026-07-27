@@ -91,6 +91,7 @@ export class SubscriptionManager {
    * prior outage are replayed. Returns a function that unregisters just
    * this handler.
    */
+  
   subscribe(invoiceId: string, handler: InvoiceEventHandler, opts?: Pick<SubscriptionOptions, "storage" | "storageKind">): () => void {
     let state = this.subscriptions.get(invoiceId);
     if (!state) {
