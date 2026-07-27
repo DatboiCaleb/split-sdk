@@ -746,3 +746,39 @@ export type {
   BridgePaymentRequest,
   SignedBridgeProof,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Streaming subscriptions (SubscriptionManager)
+// ---------------------------------------------------------------------------
+
+export { SubscriptionManager, getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+export type { EventCursor, SubscriptionManagerLifecycleEvent } from "./types/events.js";
+export type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
+export { createStorageAdapter, MemoryStorageAdapter } from "./storage/storageAdapter.js";
+export type { StorageAdapter, StorageKind } from "./storage/storageAdapter.js";
+
+// ---------------------------------------------------------------------------
+// Resilience (advanced CircuitBreaker)
+// ---------------------------------------------------------------------------
+
+export { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
+export type {
+  CircuitState as AdvancedCircuitState,
+  CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
+  CircuitBreakerStateSnapshot as AdvancedCircuitBreakerStateSnapshot,
+  CircuitBreakerLogger as AdvancedCircuitBreakerLogger,
+} from "./resilience/CircuitBreaker.js";
+
+// ---------------------------------------------------------------------------
+// Waterfall payment routing
+// ---------------------------------------------------------------------------
+
+export { WaterfallRouter } from "./routing/WaterfallRouter.js";
+export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } from "./types/routing.js";
+
+// ---------------------------------------------------------------------------
+// Optimistic UI cache
+// ---------------------------------------------------------------------------
+
+export { OptimisticCache } from "./cache/OptimisticCache.js";
+export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";

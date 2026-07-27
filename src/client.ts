@@ -58,6 +58,18 @@ import { resolveToken } from "./token.js";
 import type { PaymentReceipt } from "./receipt.js";
 import { createInvoiceSubscription } from "./subscription.js";
 import type { Subscription, InvoiceEvent, SubscriptionOptions } from "./types.js";
+import { getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+import type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
+import { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
+import type {
+  CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
+  CircuitBreakerStateSnapshot,
+} from "./resilience/CircuitBreaker.js";
+import type { WaterfallPlan } from "./types/routing.js";
+import { WaterfallInsufficientFundsError } from "./errors.js";
+import { OptimisticCache } from "./cache/OptimisticCache.js";
+import type { CommitFn, RollbackFn } from "./cache/OptimisticCache.js";
+import { getOptimisticInvoice } from "./optimistic.js";
 import type {
   ArchivedInvoice,
 
@@ -387,6 +399,20 @@ export interface StellarSplitClientConfig {
     /** Retry settings applied per RPC call (maxRetries, baseDelayMs, etc.). */
     retry?: Partial<ResilientRetryConfig>;
   };
+  /**
+   * Optional configuration for the CLOSED/OPEN/HALF_OPEN circuit breaker
+   * (src/resilience/CircuitBreaker.ts) guarding the transaction-submission
+   * path. When OPEN, `pay()` and other write methods fail fast with
+   * CircuitOpenError instead of hanging until RPC timeout. Exposed at
+   * runtime via `client.circuitBreaker.getState()`.
+   */
+  advancedCircuitBreaker?: Partial<AdvancedCircuitBreakerOptions>;
+  /**
+   * When true, `pay()` applies a predicted Invoice update immediately on
+   * submission and `getInvoice()` returns it until the transaction settles,
+   * instead of returning stale data while the transaction is pending.
+   */
+  optimisticCache?: boolean;
 }
 
 /** Network configuration. */
@@ -536,6 +562,15 @@ export class StellarSplitClient extends EventEmitter {
   private _adminKeypair: Keypair | null = null;
   /** Resilient RPC wrapper providing retry + circuit breaker for all RPC calls. */
   private _resilientRpc: ResilientRpcClient | null = null;
+  /**
+   * Optional secondary circuit breaker (src/resilience/CircuitBreaker.ts)
+   * guarding the transaction-submission path (`_submitTx`). Distinct from
+   * `_resilientRpc`'s breaker so existing `circuitBreaker: { breaker, retry }`
+   * configs keep working unchanged; enable via `advancedCircuitBreaker`.
+   */
+  private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
+  /** Optimistic UI cache for Invoice reads during a pending pay() call. */
+  private _optimisticCache: OptimisticCache<Invoice> | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private get server(): any {
@@ -652,6 +687,16 @@ export class StellarSplitClient extends EventEmitter {
       this._resilientRpc.on("circuit:open", () => this.emit("circuit:open"));
       this._resilientRpc.on("circuit:close", () => this.emit("circuit:close"));
       this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open"));
+    }
+
+    if (config.advancedCircuitBreaker) {
+      this._advancedCircuitBreaker = new AdvancedCircuitBreaker(config.advancedCircuitBreaker, {
+        warn: (event) => this.emit("circuit_state_change", event),
+      });
+    }
+
+    if (config.optimisticCache) {
+      this._optimisticCache = new OptimisticCache<Invoice>();
     }
 
     if (
@@ -1493,6 +1538,22 @@ export class StellarSplitClient extends EventEmitter {
   async pay(params: PayParams): Promise<TxResult> {
     const startTime = Date.now();
     params = this._pluginRegistry.runBeforeCall("pay", params);
+
+    let optimistic: { commit: CommitFn; rollback: RollbackFn } | null = null;
+    if (this._optimisticCache) {
+      const current = this._cache?.get(`getInvoice:${JSON.stringify([params.invoiceId])}`) as
+        | Invoice
+        | undefined;
+      if (current) {
+        const predicted = getOptimisticInvoice(current, {
+          payer: params.payer,
+          amount: params.amount,
+          donateOnFailure: params.donateOnFailure,
+        });
+        optimistic = this._optimisticCache.applyOptimistic(params.invoiceId, predicted, current);
+      }
+    }
+
     try {
       const operation = this.contract.call(
         "pay",
@@ -1507,15 +1568,140 @@ export class StellarSplitClient extends EventEmitter {
         ? await executeWithRetry(submitFn, this._retryOptions)
         : await withRetry(submitFn, this.config.maxRetries ?? 3, 1000);
       this._cache?.invalidate(params.invoiceId);
+      optimistic?.commit();
       telemetry.recordMethod("pay", true, Date.now() - startTime);
       return this._pluginRegistry.runAfterCall("pay", {
         txHash: result.txHash,
       });
     } catch (error) {
+      optimistic?.rollback();
       telemetry.recordMethod("pay", false, Date.now() - startTime);
       this._pluginRegistry.runOnError("pay", error);
       throw error;
     }
+  }
+
+  /**
+   * Submit a payment, optionally routed through a WaterfallPlan
+   * (see WaterfallRouter.plan()) instead of the default single-amount
+   * round-robin split. When a plan is supplied, one `pay` operation per
+   * satisfied tier is built and submitted in a single transaction envelope,
+   * in the plan's declared priority order.
+   *
+   * @param params.waterfallPlan - Plan produced by `WaterfallRouter.plan()`.
+   * @param params.allowPartial  - Submit even if the plan has unsatisfied tiers.
+   *   Defaults to the value carried on the plan itself (`plan.allowPartial`).
+   * @throws WaterfallInsufficientFundsError if any tier is unsatisfied and
+   *   partial submission wasn't allowed.
+   */
+  async submitPayment(params: {
+    invoiceId: string;
+    payer: string;
+    amount: bigint;
+    donateOnFailure?: boolean;
+    waterfallPlan?: WaterfallPlan;
+    allowPartial?: boolean;
+  }): Promise<TxResult> {
+    if (!params.waterfallPlan) {
+      return this.pay({
+        payer: params.payer,
+        invoiceId: params.invoiceId,
+        amount: params.amount,
+        donateOnFailure: params.donateOnFailure,
+      });
+    }
+
+    const plan = params.waterfallPlan;
+    const allowPartial = params.allowPartial ?? plan.allowPartial ?? false;
+    const hasUnsatisfiedTier = plan.steps.some((step) => !step.satisfied);
+    if (hasUnsatisfiedTier && !allowPartial) {
+      throw new WaterfallInsufficientFundsError(params.invoiceId, {
+        unsatisfiedTiers: plan.steps.filter((s) => !s.satisfied).map((s) => s.recipient),
+      });
+    }
+
+    const fundedSteps = plan.steps.filter((step) => step.satisfied && step.amount > 0n);
+    if (fundedSteps.length === 0) {
+      throw new WaterfallInsufficientFundsError(params.invoiceId);
+    }
+
+    const operations = fundedSteps.map((step) =>
+      this.contract.call(
+        "pay",
+        nativeToScVal(params.payer, { type: "address" }),
+        nativeToScVal(BigInt(params.invoiceId), { type: "u64" }),
+        nativeToScVal(step.amount, { type: "i128" }),
+        nativeToScVal(params.donateOnFailure ?? false, { type: "bool" }),
+      ),
+    );
+
+    const result = await this._submitWaterfallTx(params.payer, operations);
+    this._cache?.invalidate(params.invoiceId);
+    return { txHash: result.txHash };
+  }
+
+  /**
+   * Build and submit a single transaction envelope containing one contract
+   * operation per waterfall step, preserving priority order.
+   */
+  private async _submitWaterfallTx(
+    sourceAddress: string,
+    operations: xdr.Operation[],
+  ): Promise<{ txHash: string; returnValue: xdr.ScVal }> {
+    const account = await this.server.getAccount(sourceAddress);
+    const builder = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    });
+    for (const operation of operations) {
+      builder.addOperation(operation);
+    }
+    const tx = builder.setTimeout(30).build();
+
+    const submit = () => this._doSubmitWaterfallSend(tx, sourceAddress);
+    return this._advancedCircuitBreaker ? this._advancedCircuitBreaker.execute(submit) : submit();
+  }
+
+  private async _doSubmitWaterfallSend(
+    tx: Transaction,
+    sourceAddress: string,
+  ): Promise<{ txHash: string; returnValue: xdr.ScVal }> {
+    const simResult = await this.server.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(simResult)) {
+      throw parseSorobanError(simResult.error);
+    }
+
+    const preparedTx = SorobanRpc.assembleTransaction(tx, simResult).build();
+    const signedXdr = await (this._adapter
+      ? this._adapter.signTransaction(preparedTx.toXDR(), this.config.networkPassphrase)
+      : signTransaction(preparedTx.toXDR(), this.config.networkPassphrase));
+
+    const sendResult = await this.server.sendTransaction(
+      TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase),
+    );
+    if (sendResult.status === "ERROR") {
+      throw new TransactionFailedError(
+        `Waterfall transaction failed: ${JSON.stringify(sendResult.errorResult)}`,
+        sendResult.hash,
+        JSON.stringify(sendResult.errorResult),
+      );
+    }
+
+    const txHash = sendResult.hash;
+    let getResult = await this.server.getTransaction(txHash);
+    let attempts = 0;
+    while (getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND && attempts < 20) {
+      await new Promise((r) => setTimeout(r, 1500));
+      getResult = await this.server.getTransaction(txHash);
+      attempts++;
+    }
+    if (getResult.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      throw new TransactionNotConfirmedError(String(getResult.status));
+    }
+
+    const returnValue =
+      (getResult as SorobanRpc.Api.GetSuccessfulTransactionResponse).returnValue ?? xdr.ScVal.scvVoid();
+    return { txHash, returnValue };
   }
 
   /**
@@ -1609,6 +1795,10 @@ export class StellarSplitClient extends EventEmitter {
     invoiceId: string,
     opts?: { retry?: PerMethodRetryOptions; dedupe?: boolean; traceId?: string; timeout?: number }
   ): Promise<Invoice> {
+    const optimistic = this._optimisticCache?.get(invoiceId);
+    if (optimistic !== undefined) {
+      return optimistic;
+    }
 
     return this._withCache("getInvoice", [invoiceId], async () => {
 
@@ -1637,6 +1827,55 @@ export class StellarSplitClient extends EventEmitter {
    */
   getDedupStats(): { deduped: number; total: number } {
     return this._dedup.getDedupStats();
+  }
+
+  /**
+   * Subscribe to typed InvoiceEvent payloads for a single invoice via the
+   * shared SubscriptionManager, instead of polling fetch methods. The first
+   * call for a given invoice ID starts the manager's poll-then-push bridge
+   * and restores any cursor persisted from a previous session/tab, so
+   * events emitted during an outage are replayed on reconnect.
+   *
+   * @param invoiceId - The invoice ID to watch.
+   * @param handler   - Called with each typed InvoiceEvent as it arrives.
+   * @param opts      - Optional per-subscription overrides (poll interval, backoff, storage).
+   * @returns Unsubscribe function scoped to this handler only.
+   */
+  subscribe(
+    invoiceId: string,
+    handler: (event: InvoiceEvent) => void,
+    opts?: SubscriptionManagerOptions,
+  ): () => void {
+    const manager = getSubscriptionManager(this.server, this.config.contractId, opts);
+    return manager.subscribe(invoiceId, handler, opts);
+  }
+
+  /**
+   * Stop receiving InvoiceEvents for an invoice ID. Removes every handler
+   * registered via `subscribe()` for that invoice and releases the
+   * underlying poll timer.
+   */
+  unsubscribe(invoiceId: string): void {
+    getSubscriptionManager(this.server, this.config.contractId).unsubscribe(invoiceId);
+  }
+
+  /**
+   * The advanced CLOSED/OPEN/HALF_OPEN circuit breaker guarding
+   * transaction submission, or null when `advancedCircuitBreaker` was not
+   * passed to the constructor. Use `client.circuitBreaker.getState()` to
+   * inspect the current state for dashboards/alerting.
+   */
+  get circuitBreaker(): { getState(): CircuitBreakerStateSnapshot } | null {
+    return this._advancedCircuitBreaker;
+  }
+
+  /**
+   * The optimistic UI cache, or null when `optimisticCache` was not passed
+   * to the constructor. Use `client.optimisticCache?.onRollback(...)` to
+   * react to a prediction being reverted after a failed transaction.
+   */
+  get optimisticCache(): OptimisticCache<Invoice> | null {
+    return this._optimisticCache;
   }
 
   /**
@@ -4482,8 +4721,13 @@ export class StellarSplitClient extends EventEmitter {
         }
       }
 
+      const submit = () =>
+        this._advancedCircuitBreaker
+          ? this._advancedCircuitBreaker.execute(() => this._doSubmitTx(sourceAddress, operation))
+          : this._doSubmitTx(sourceAddress, operation);
+
       try {
-        const result = await this._doSubmitTx(sourceAddress, operation);
+        const result = await submit();
         if (this._idempotency) {
           const opXdr = operation.toXDR().toString("base64");
           const key = this._idempotency.generateKey(sourceAddress, opXdr);
@@ -4493,7 +4737,7 @@ export class StellarSplitClient extends EventEmitter {
       } catch (error) {
         if (this._standby) {
           this._standby.failover();
-          const result = await this._doSubmitTx(sourceAddress, operation);
+          const result = await submit();
           if (this._idempotency) {
             const opXdr = operation.toXDR().toString("base64");
             const key = this._idempotency.generateKey(sourceAddress, opXdr);

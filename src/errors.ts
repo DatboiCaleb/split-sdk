@@ -731,6 +731,26 @@ export class RefundGraceError extends StellarSplitError {
   }
 }
 
+/** Thrown when submitting a WaterfallPlan with an unsatisfied tier and `allowPartial` was not set. */
+export class WaterfallInsufficientFundsError extends StellarSplitError {
+  readonly invoiceId: string;
+
+  constructor(invoiceId: string, context?: Record<string, unknown>) {
+    super(
+      `Waterfall plan for invoice ${invoiceId} has one or more unsatisfied tiers; pass allowPartial: true to submit anyway`,
+      "WATERFALL_INSUFFICIENT_FUNDS",
+      { invoiceId, ...context },
+    );
+    this.name = "WaterfallInsufficientFundsError";
+    this.invoiceId = invoiceId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isWaterfallInsufficientFundsError(err: unknown): err is WaterfallInsufficientFundsError {
+  return err instanceof WaterfallInsufficientFundsError;
+}
+
 /** Thrown when channel reconciliation fails. */
 export class ChannelReconciliationError extends StellarSplitError {
   readonly reason: string;
