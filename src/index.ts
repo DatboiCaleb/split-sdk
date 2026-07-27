@@ -476,6 +476,69 @@ export type {
 export { generateMerkleProof, verifyMerkleProof } from "./merkle.js";
 export type { MerkleProof } from "./merkle.js";
 
+// Simulation sandbox — fork ledger state via simulateTransaction and run
+// sequences of SDK operations against it without touching the network.
+export { SimulationSandbox } from "./sandbox/SimulationSandbox.js";
+export type {
+  SandboxClient,
+  SimulationCost,
+  SimulationResult,
+  SandboxInvoiceRecord,
+  SandboxPaymentRecord,
+  SandboxCallLogEntry,
+  SandboxLedgerDiff,
+} from "./sandbox/SimulationSandbox.js";
+
+// Horizon SSE stream manager — cursor-bookmarked payments/operations
+// streaming with reconnect-and-resume, dedupe, and replay cutoff.
+export {
+  HorizonStreamManager,
+  InMemoryCursorStore,
+  createLocalStorageCursorStore,
+  createSessionStorageCursorStore,
+  DEFAULT_REPLAY_CUTOFF_MS,
+  DEFAULT_DEDUPE_BUFFER_SIZE,
+  DEFAULT_RECONNECT_DELAY_MS,
+} from "./horizon/HorizonStreamManager.js";
+export type {
+  HorizonStreamRecord,
+  HorizonCallBuilderLike,
+  HorizonStreamSource,
+  CursorStore,
+  HorizonStreamKind,
+  HorizonStreamManagerConfig,
+  HorizonStreamEventMap,
+} from "./horizon/HorizonStreamManager.js";
+
+// Adaptive rate-limit throttle — sizes a token bucket from observed
+// X-RateLimit-* headers and backs off further on 429s.
+export {
+  AdaptiveThrottle,
+  DEFAULT_PENALTY_DURATION_MS,
+} from "./throttle/AdaptiveThrottle.js";
+export type { AdaptiveThrottleConfig, ThrottleStats } from "./throttle/AdaptiveThrottle.js";
+export { parseRateLimitHeaders } from "./throttle/RateLimitParser.js";
+export type { HeadersLike, RateLimitInfo } from "./throttle/RateLimitParser.js";
+
+// Receipt chain — SHA-256-linked, tamper-evident payment receipt history
+// per invoice. `PaymentReceipt` is aliased to `ChainPaymentReceipt` here to
+// avoid colliding with the unrelated `PaymentReceipt` already exported from
+// receipt.js (a compiled multi-payment summary receipt).
+export {
+  ReceiptChain,
+  GENESIS_PREV_HASH,
+  InMemoryReceiptChainStorage,
+  createLocalStorageReceiptChainStorage,
+  createSessionStorageReceiptChainStorage,
+  receiptChainStorageKey,
+} from "./receipts/ReceiptChain.js";
+export type { ReceiptChainStorage } from "./receipts/ReceiptChain.js";
+export type {
+  PaymentReceipt as ChainPaymentReceipt,
+  ReceiptChainEntry,
+  ChainVerificationResult,
+} from "./types/receipts.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
