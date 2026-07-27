@@ -16,7 +16,20 @@ import {
   xdr,
   Keypair,
 } from "@stellar/stellar-sdk";
-import { EventEmitter } from "events";
+import { TypedEventEmitter } from "./events/TypedEventEmitter.js";
+import type { CircuitStateChangeLogEvent } from "./resilience/CircuitBreaker.js";
+
+/** Events emitted by {@link StellarSplitClient}. */
+export type SplitClientEventMap = {
+  /** The advanced circuit breaker (src/resilience/CircuitBreaker.ts) tripped open. */
+  "circuit:open": undefined;
+  /** The advanced circuit breaker closed after a successful probe. */
+  "circuit:close": undefined;
+  /** The advanced circuit breaker entered half-open (probing) state. */
+  "circuit:half-open": undefined;
+  /** Fired on every advanced circuit breaker state transition. */
+  circuit_state_change: CircuitStateChangeLogEvent;
+};
 import { signTransaction } from "./wallet.js";
 import { telemetry } from "./telemetry.js";
 import { TelemetryHookManager } from "./telemetryHooks.js";
@@ -171,6 +184,7 @@ import {
   ValidationError,
   StellarSplitError,
   AdminOperationError,
+  PassphraseMismatchError,
 } from "./errors.js";
 import { replayEvents } from "./events.js";
 import { subscribeToInvoice as _subscribeToInvoice } from "./stream.js";
@@ -232,6 +246,7 @@ import type {
   RetryConfig as ResilientRetryConfig,
   CircuitBreakerConfig,
 } from "./resilientRpc.js";
+import { NetworkPassphraseValidator } from "./network/NetworkPassphraseValidator.js";
 
 /** A plugin that extends StellarSplitClient with new methods and lifecycle hooks. */
 export interface StellarSplitPlugin {
@@ -252,33 +267,6 @@ export interface StellarSplitPlugin {
    */
   onDestroy?(client: StellarSplitClient): void | Promise<void>;
 }
-/**
-   * Internal startup validation. Throws PassphraseMismatchError if 
-   * the configured passphrase doesn't match the RPC node.
-   */
-  private async _validateStartupConfig(): Promise<void> {
-    const primaryUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0]! : this.config.rpcUrl;
-    const result = await NetworkPassphraseValidator.validate(
-      this.config.networkPassphrase,
-      primaryUrl
-    );
-    if (result.mismatch) {
-      throw new PassphraseMismatchError(result.configured, result.reported);
-    }
-  }
-
-  /**
-   * Live network switcher. Migrates state and re-subscribes.
-   * @param network - 'mainnet' | 'testnet' | 'futurenet'
-   */
-  public async switchTo(network: 'mainnet' | 'testnet' | 'futurenet'): Promise<void> {
-    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
-    return NetworkSwitcher.switchTo(network, this);
-  }
-/** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
-  validatePassphrase?: boolean;
-  /** Map of available networks for the live switcher. */
-  networks?: Record<string, NetworkConfig>;
 
 /** Configuration for StellarSplitClient. */
 export interface StellarSplitClientConfig {
@@ -440,6 +428,10 @@ export interface StellarSplitClientConfig {
    * instead of returning stale data while the transaction is pending.
    */
   optimisticCache?: boolean;
+  /** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
+  validatePassphrase?: boolean;
+  /** Map of available networks for the live switcher. */
+  networks?: Record<string, NetworkConfig>;
 }
 
 /** Network configuration. */
@@ -547,12 +539,8 @@ export function verifyCompletionProof(proof: CompletionProof): {
   }
   return { valid: true };
 }
-// ... end of constructor logic
-    if (config.validatePassphrase !== false) {
-      this._validateStartupConfig();
-    }
 
-export class StellarSplitClient extends EventEmitter {
+export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _mainServer!: SorobanRpc.Server;
   private _standby: WarmStandby | null = null;
   private _queue = new PriorityQueue();
@@ -715,9 +703,9 @@ export class StellarSplitClient extends EventEmitter {
         config.circuitBreaker.retry,
         config.circuitBreaker.breaker,
       );
-      this._resilientRpc.on("circuit:open", () => this.emit("circuit:open"));
-      this._resilientRpc.on("circuit:close", () => this.emit("circuit:close"));
-      this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open"));
+      this._resilientRpc.on("circuit:open", () => this.emit("circuit:open", undefined));
+      this._resilientRpc.on("circuit:close", () => this.emit("circuit:close", undefined));
+      this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open", undefined));
     }
 
     if (config.advancedCircuitBreaker) {
@@ -823,6 +811,34 @@ export class StellarSplitClient extends EventEmitter {
     for (const p of this._pluginInstances) {
       p.onInit?.(this);
     }
+
+    if (config.validatePassphrase !== false) {
+      this._validateStartupConfig();
+    }
+  }
+
+  /**
+   * Internal startup validation. Throws PassphraseMismatchError if
+   * the configured passphrase doesn't match the RPC node.
+   */
+  private async _validateStartupConfig(): Promise<void> {
+    const primaryUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0]! : this.config.rpcUrl;
+    const result = await NetworkPassphraseValidator.validate(
+      this.config.networkPassphrase,
+      primaryUrl
+    );
+    if (result.mismatch) {
+      throw new PassphraseMismatchError(result.configured, result.reported);
+    }
+  }
+
+  /**
+   * Live network switcher. Migrates state and re-subscribes.
+   * @param network - 'mainnet' | 'testnet' | 'futurenet'
+   */
+  public async switchTo(network: 'mainnet' | 'testnet' | 'futurenet'): Promise<void> {
+    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
+    return NetworkSwitcher.switchTo(network, this);
   }
 
   /**

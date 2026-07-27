@@ -845,3 +845,11 @@ export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } fro
 
 export { OptimisticCache } from "./cache/OptimisticCache.js";
 export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
+
+// ---------------------------------------------------------------------------
+// Typed, zero-dependency event emitter (works in Node, browser, and edge runtimes)
+// ---------------------------------------------------------------------------
+
+export { TypedEventEmitter, AbortError } from "./events/TypedEventEmitter.js";
+export type { Unsubscribe, EventMap } from "./events/TypedEventEmitter.js";
+export type { SplitClientEventMap } from "./client.js";
