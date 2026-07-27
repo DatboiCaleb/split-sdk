@@ -510,6 +510,16 @@ export type {
   HorizonStreamEventMap,
 } from "./horizon/HorizonStreamManager.js";
 
+// Adaptive rate-limit throttle — sizes a token bucket from observed
+// X-RateLimit-* headers and backs off further on 429s.
+export {
+  AdaptiveThrottle,
+  DEFAULT_PENALTY_DURATION_MS,
+} from "./throttle/AdaptiveThrottle.js";
+export type { AdaptiveThrottleConfig, ThrottleStats } from "./throttle/AdaptiveThrottle.js";
+export { parseRateLimitHeaders } from "./throttle/RateLimitParser.js";
+export type { HeadersLike, RateLimitInfo } from "./throttle/RateLimitParser.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
