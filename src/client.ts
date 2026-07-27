@@ -18,6 +18,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { TypedEventEmitter } from "./events/TypedEventEmitter.js";
 import type { CircuitStateChangeLogEvent } from "./resilience/CircuitBreaker.js";
+import { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
+import type { StateMachineConfig } from "./types/state.js";
 
 /** Events emitted by {@link StellarSplitClient}. */
 export type SplitClientEventMap = {
@@ -432,6 +434,12 @@ export interface StellarSplitClientConfig {
   validatePassphrase?: boolean;
   /** Map of available networks for the live switcher. */
   networks?: Record<string, NetworkConfig>;
+  /**
+   * Optional override for the allowed invoice status transition graph used
+   * by InvoiceStateMachine. When omitted, the default graph is used
+   * (Pending -> Released | Refunded | Cancelled; the rest are terminal).
+   */
+  stateMachine?: StateMachineConfig;
 }
 
 /** Network configuration. */
@@ -590,6 +598,7 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
   /** Optimistic UI cache for Invoice reads during a pending pay() call. */
   private _optimisticCache: OptimisticCache<Invoice> | null = null;
+  private readonly _stateMachine: InvoiceStateMachine;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private get server(): any {
@@ -717,6 +726,8 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
     if (config.optimisticCache) {
       this._optimisticCache = new OptimisticCache<Invoice>();
     }
+
+    this._stateMachine = new InvoiceStateMachine(config.stateMachine);
 
     if (
       !this._rpcClient &&
@@ -1874,6 +1885,35 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
    */
   getDedupStats(): { deduped: number; total: number } {
     return this._dedup.getDedupStats();
+  }
+
+  /**
+   * The InvoiceStateMachine backing updateInvoiceStatus(). Exposed so
+   * consumers can attach `on('transition', ...)` / `on('invalidTransition', ...)`
+   * lifecycle hooks.
+   */
+  get stateMachine(): InvoiceStateMachine {
+    return this._stateMachine;
+  }
+
+  /**
+   * Updates an invoice's status, validating the transition through
+   * InvoiceStateMachine. Throws InvalidTransitionError (with
+   * `{ from, to, allowed }`) if the transition isn't allowed from the
+   * invoice's current status.
+   *
+   * When optimisticCache is enabled, the result is written into it
+   * immediately so subsequent getInvoice() calls see the new status.
+   */
+  async updateInvoiceStatus(invoiceId: string, to: InvoiceStatus): Promise<Invoice> {
+    const current = await this.getInvoice(invoiceId);
+    const updated = this._stateMachine.transition(current, to);
+
+    if (this._optimisticCache) {
+      this._optimisticCache.applyOptimistic(invoiceId, updated, current).commit();
+    }
+
+    return updated;
   }
 
   /**

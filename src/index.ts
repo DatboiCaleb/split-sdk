@@ -322,8 +322,18 @@ export type {
   CompletionProof,
   AdminFreezeResult,
   AdminUnfreezeResult,
+  TransitionRecord,
 } from "./types.js";
 export { InvalidTransitionError } from "./types.js";
+
+// Invoice status transition validation (state machine)
+export { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
+export type {
+  InvoiceStateMachineEventMap,
+  TransitionEvent,
+  InvalidTransitionEvent,
+} from "./state/InvoiceStateMachine.js";
+export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
 export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
