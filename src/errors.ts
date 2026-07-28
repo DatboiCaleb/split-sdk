@@ -1459,3 +1459,81 @@ export class PassphraseMismatchError extends StellarSplitError {
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }
+
+// ---------------------------------------------------------------------------
+// Invoice Hash Verifier errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when invoice content hash verification fails (tampering detected). */
+export class InvoiceIntegrityError extends StellarSplitError {
+  readonly invoiceId: string;
+  readonly expectedHash: string;
+  readonly computedHash: string;
+
+  constructor(invoiceId: string, expectedHash: string, computedHash: string) {
+    super(
+      `Invoice integrity check failed for ${invoiceId}: hash mismatch (expected ${expectedHash.slice(0, 8)}..., got ${computedHash.slice(0, 8)}...)`,
+      "INVOICE_INTEGRITY_ERROR",
+      { invoiceId, expectedHash, computedHash },
+    );
+    this.name = "InvoiceIntegrityError";
+    this.invoiceId = invoiceId;
+    this.expectedHash = expectedHash;
+    this.computedHash = computedHash;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInvoiceIntegrityError(err: unknown): err is InvoiceIntegrityError {
+  return err instanceof InvoiceIntegrityError;
+}
+
+// ---------------------------------------------------------------------------
+// Fee Bump Builder errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when a v0 transaction is passed to buildFeeBump (only v1 supported). */
+export class InvalidTransactionTypeError extends StellarSplitError {
+  readonly txType: string;
+
+  constructor(txType: string) {
+    super(
+      `Invalid transaction type: expected v1 envelope, got ${txType}`,
+      "INVALID_TRANSACTION_TYPE",
+      { txType },
+    );
+    this.name = "InvalidTransactionTypeError";
+    this.txType = txType;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInvalidTransactionTypeError(err: unknown): err is InvalidTransactionTypeError {
+  return err instanceof InvalidTransactionTypeError;
+}
+
+// ---------------------------------------------------------------------------
+// Currency Normalizer errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when amount conversion would lose sub-unit precision. */
+export class PrecisionError extends StellarSplitError {
+  readonly amount: string;
+  readonly asset: string;
+
+  constructor(amount: string, asset: string, details?: string) {
+    super(
+      `Precision loss converting ${amount} for asset ${asset}${details ? `: ${details}` : ""}`,
+      "PRECISION_ERROR",
+      { amount, asset, details },
+    );
+    this.name = "PrecisionError";
+    this.amount = amount;
+    this.asset = asset;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPrecisionError(err: unknown): err is PrecisionError {
+  return err instanceof PrecisionError;
+}

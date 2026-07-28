@@ -168,6 +168,12 @@ export {
   isIPFSConfigError,
   ShutdownInProgressError,
   isShutdownInProgressError,
+  InvoiceIntegrityError,
+  isInvoiceIntegrityError,
+  InvalidTransactionTypeError,
+  isInvalidTransactionTypeError,
+  PrecisionError,
+  isPrecisionError,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -968,3 +974,39 @@ export {
   RpcConnectionError,
   isRpcConnectionError,
 } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Invoice hash verification
+// ---------------------------------------------------------------------------
+
+export { hashInvoice, verifyInvoiceHash } from "./invoiceHashVerifier.js";
+export type { InvoiceRecord } from "./invoiceHashVerifier.js";
+
+// ---------------------------------------------------------------------------
+// Fee bump builder
+// ---------------------------------------------------------------------------
+
+export { buildFeeBump, feeBumpToXDR, describeFeeBump } from "./feeBumpBuilder.js";
+export type { FeeBumpConfig } from "./feeBumpBuilder.js";
+
+// ---------------------------------------------------------------------------
+// Currency normalizer
+// ---------------------------------------------------------------------------
+
+export {
+  normalizeAmount,
+  toOnChainAmount,
+  getAssetPrecision,
+  registerAssetPrecision,
+  verifyRoundTrip,
+} from "./currencyNormalizer.js";
+
+// ---------------------------------------------------------------------------
+// Invoice status poller
+// ---------------------------------------------------------------------------
+
+export { InvoiceStatusPoller } from "./poller.js";
+export type {
+  InvoiceStatusPollerOptions,
+  InvoiceStatusPollerEventMap,
+} from "./poller.js";
