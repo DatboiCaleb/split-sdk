@@ -1,5 +1,7 @@
-import type { Invoice } from "./types.js";
+import type { Invoice, RecipientShare } from "./types.js";
 import { isExpired } from "./utils.js";
+import { validateSplitRatios } from "./validators/splitRatioValidator.js";
+import type { SplitRatioValidationResult } from "./validators/splitRatioValidator.js";
 
 export interface PaymentValidation {
   valid: boolean;

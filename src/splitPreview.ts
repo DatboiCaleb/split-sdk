@@ -1,4 +1,28 @@
 import type { Invoice, SplitRule, SplitPreviewEntry } from "./types.js";
+import { validateSplitRatios } from "./validators/splitRatioValidator.js";
+import type { SplitConfig } from "./types.js";
+
+/**
+ * Validate the invoice's recipient share ratios before computing a preview.
+ * Returns a structured result indicating whether the ratios are well-formed
+ * or should be surfaced to the caller as an error.
+ */
+export function previewSplitValidation(
+  recipients: { address: string; amount: bigint }[],
+): { valid: boolean; errors: string[] } {
+  const total = recipients.reduce((sum, r) => sum + r.amount, 0n);
+  if (total === 0n) {
+    return { valid: false, errors: ["Total recipient amount is zero; cannot compute shares."] };
+  }
+
+  const shares = recipients.map((r) => ({
+    address: r.address,
+    share: Number(r.amount) / Number(total),
+  }));
+
+  const config: SplitConfig = { shares };
+  return validateSplitRatios(config);
+}
 
 /**
  * Apply a single {@link SplitRule} against a funded amount.
