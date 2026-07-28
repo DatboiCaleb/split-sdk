@@ -80,6 +80,7 @@ import type { PaymentReceipt } from "./receipt.js";
 import { createInvoiceSubscription } from "./subscription.js";
 import type { Subscription, InvoiceEvent, SubscriptionOptions } from "./types.js";
 import { getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+import { destroySubscriptionManager } from "./streaming/SubscriptionManager.js";
 import type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
 import { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
 import type {
@@ -187,6 +188,7 @@ import {
   RpcUnavailableError,
   UnknownEndpointError,
   QueueFailedError,
+  ShutdownInProgressError,
   SignerFailedError,
   NoSignerProvidedError,
   ValidationError,
@@ -286,6 +288,10 @@ export interface StellarSplitClientConfig {
   networkPassphrase: string;
   /** Deployed StellarSplit contract ID. */
   contractId: string;
+  /** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
+  validatePassphrase?: boolean;
+  /** Map of available networks for the live switcher. */
+  networks?: Record<string, NetworkConfig>;
   /** Maximum retry attempts for transient pay() failures. Defaults to 3. */
   maxRetries?: number;
   /** Optional telemetry configuration. */
@@ -487,6 +493,12 @@ export interface TxResult {
   txHash: string;
 }
 
+export interface InFlightRequestInfo {
+  id: string;
+  method: string;
+  startedAt: number;
+}
+
 /** TTL for cached NFT gate status results (30 seconds). */
 const NFT_GATE_CACHE_TTL_MS = 30_000;
 
@@ -578,6 +590,7 @@ export function verifyCompletionProof(proof: CompletionProof): {
   }
   return { valid: true };
 }
+export class StellarSplitClient extends EventEmitter {
 
 export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _mainServer!: SorobanRpc.Server;
@@ -631,6 +644,13 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
   /** Optimistic UI cache for Invoice reads during a pending pay() call. */
   private _optimisticCache: OptimisticCache<Invoice> | null = null;
+  private _shutdownInProgress = false;
+  private _pluginsDestroyed = false;
+  private _runtimeShutdownPromise: Promise<void> | null = null;
+  private _requestSeq = 0;
+  private readonly _inFlightRequests = new Map<string, InFlightRequestInfo>();
+  private readonly _inFlightRequestPromises = new Map<string, Promise<unknown>>();
+  private readonly _managedHorizonStreams = new Set<{ stop(): void }>();
   private readonly _stateMachine: InvoiceStateMachine;
   /**
    * OpenTelemetry handle. Stays {@link noopOtelHandle} (zero overhead, no
@@ -871,6 +891,148 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
     for (const p of this._pluginInstances) {
       p.onInit?.(this);
     }
+    if (config.validatePassphrase !== false) {
+      void this._validateStartupConfig();
+    }
+  }
+
+  /**
+   * Internal startup validation. Throws if the configured passphrase does not
+   * match the connected RPC node.
+   */
+  private async _validateStartupConfig(): Promise<void> {
+    const { NetworkPassphraseValidator } = await import(
+      "./network/NetworkPassphraseValidator.js"
+    );
+    const { PassphraseMismatchError } = await import("./errors.js");
+    const primaryUrl = Array.isArray(this.config.rpcUrl)
+      ? this.config.rpcUrl[0]!
+      : this.config.rpcUrl;
+    const result = await NetworkPassphraseValidator.validate(
+      this.config.networkPassphrase,
+      primaryUrl,
+    );
+    if (result.mismatch) {
+      throw new PassphraseMismatchError(result.configured, result.reported);
+    }
+  }
+
+  /**
+   * Live network switcher. Migrates state and re-subscribes.
+   */
+  async switchTo(network: "mainnet" | "testnet" | "futurenet"): Promise<void> {
+    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
+    return NetworkSwitcher.switchTo(network, this);
+  }
+
+  isShutdownInProgress(): boolean {
+    return this._shutdownInProgress;
+  }
+
+  beginGracefulShutdown(): void {
+    this._shutdownInProgress = true;
+  }
+
+  registerHorizonStreamManager(manager: { stop(): void }): () => void {
+    this._managedHorizonStreams.add(manager);
+    return () => {
+      this._managedHorizonStreams.delete(manager);
+    };
+  }
+
+  getInFlightRequests(): InFlightRequestInfo[] {
+    return [...this._inFlightRequests.values()].sort(
+      (left, right) => left.startedAt - right.startedAt,
+    );
+  }
+
+  async waitForInFlightRequests(): Promise<void> {
+    await Promise.allSettled([...this._inFlightRequestPromises.values()]);
+  }
+
+  async finalizeShutdown(): Promise<void> {
+    if (this._runtimeShutdownPromise) {
+      return this._runtimeShutdownPromise;
+    }
+
+    this.beginGracefulShutdown();
+    this._runtimeShutdownPromise = (async () => {
+      await this._destroyPlugins();
+      destroySubscriptionManager(this.config.contractId);
+      for (const manager of this._managedHorizonStreams) {
+        manager.stop();
+      }
+      this._managedHorizonStreams.clear();
+
+      this._standby?.stop();
+      this._wsTransport?.disconnect();
+      this._wsTransport = null;
+
+      this._pool?.dispose();
+      this._pool = null;
+
+      if (this._cache && typeof (this._cache as any).persist === "function") {
+        await (this._cache as any).persist();
+      }
+      if (this._cache && typeof (this._cache as any).close === "function") {
+        await (this._cache as any).close();
+      }
+      if (
+        this._rpcClient &&
+        typeof (this._rpcClient as any).close === "function"
+      ) {
+        await (this._rpcClient as any).close();
+      }
+
+      telemetry.destroy();
+    })();
+
+    return this._runtimeShutdownPromise;
+  }
+
+  private async _destroyPlugins(): Promise<void> {
+    if (this._pluginsDestroyed) return;
+    this._pluginsDestroyed = true;
+
+    for (const plugin of [...this._pluginInstances].reverse()) {
+      try {
+        await plugin.onDestroy?.(this);
+      } catch (error) {
+        console.error(
+          `[StellarSplitClient] Plugin "${plugin.name}" onDestroy error:`,
+          error,
+        );
+      }
+    }
+
+    this._pluginInstances = [];
+    this._plugins.clear();
+  }
+
+  private _assertWritable(): void {
+    if (this._shutdownInProgress) {
+      throw new ShutdownInProgressError();
+    }
+  }
+
+  private _trackInFlightRequest<T>(
+    method: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const id = `${method}:${++this._requestSeq}`;
+    const info: InFlightRequestInfo = {
+      id,
+      method,
+      startedAt: Date.now(),
+    };
+
+    this._inFlightRequests.set(id, info);
+    const trackedPromise = (async () => operation())().finally(() => {
+      this._inFlightRequests.delete(id);
+      this._inFlightRequestPromises.delete(id);
+    });
+    this._inFlightRequestPromises.set(id, trackedPromise);
+    return trackedPromise;
 
     if (config.validatePassphrase !== false) {
       this._validateStartupConfig();

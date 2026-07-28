@@ -1225,6 +1225,53 @@ export function isRequestTimeoutError(err: unknown): err is RequestTimeoutError 
   return err instanceof RequestTimeoutError;
 }
 
+/** Thrown when a new write request is attempted during graceful shutdown. */
+export class ShutdownInProgressError extends StellarSplitError {
+  constructor(message: string = "SDK shutdown is in progress; new transaction submissions are disabled") {
+    super(message, "SHUTDOWN_IN_PROGRESS");
+    this.name = "ShutdownInProgressError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isShutdownInProgressError(err: unknown): err is ShutdownInProgressError {
+  return err instanceof ShutdownInProgressError;
+}
+
+/** Thrown when graceful shutdown times out while requests are still pending. */
+export class GracefulShutdownTimeoutError extends StellarSplitError {
+  readonly signal: string;
+  readonly timeoutMs: number;
+  readonly pendingRequests: Array<{ id: string; method: string; startedAt: number }>;
+
+  constructor(
+    signal: string,
+    timeoutMs: number,
+    pendingRequests: Array<{ id: string; method: string; startedAt: number }>,
+  ) {
+    super(
+      `Graceful shutdown timed out after ${timeoutMs}ms while handling ${signal}`,
+      "GRACEFUL_SHUTDOWN_TIMEOUT",
+      {
+        signal,
+        timeoutMs,
+        pendingRequests,
+      },
+    );
+    this.name = "GracefulShutdownTimeoutError";
+    this.signal = signal;
+    this.timeoutMs = timeoutMs;
+    this.pendingRequests = pendingRequests;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isGracefulShutdownTimeoutError(
+  err: unknown,
+): err is GracefulShutdownTimeoutError {
+  return err instanceof GracefulShutdownTimeoutError;
+}
+
 /** Thrown when too many concurrent invoice subscriptions are created. */
 export class TooManySubscriptionsError extends StellarSplitError {
   constructor(maxSubscriptions: number = 10) {
