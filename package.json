@@ -48,7 +48,8 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "changelog": "vite-node scripts/changelog.ts",
-    "docs": "ts-node scripts/generate-docs.ts"
+    "docs": "ts-node scripts/generate-docs.ts",
+    "size-audit": "tsx scripts/bundle-size-audit.ts"
   },
   "dependencies": {
     "@ledgerhq/hw-app-str": "^6.29.0",

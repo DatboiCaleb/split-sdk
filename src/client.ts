@@ -6073,6 +6073,105 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
       () => _submitBridgePayment(proof, this.config),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Issue #1 — Account Merge Detection: rerouteRecipient
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Reroute an invoice recipient from a merged (invalid) account to a new destination.
+   *
+   * Validates the new address exists on-chain and has required trustlines,
+   * then updates the recipient record. Emits `recipient:rerouted`.
+   *
+   * @param invoiceId   - Invoice whose recipient should be updated.
+   * @param oldAddress  - The merged (invalid) recipient address.
+   * @param newAddress  - The destination account after the merge.
+   */
+  async rerouteRecipient(
+    invoiceId: string,
+    oldAddress: string,
+    newAddress: string,
+  ): Promise<void> {
+    const { AccountMergeDetector, InvalidDestinationError } = await import(
+      "./accounts/AccountMergeDetector.js"
+    );
+
+    const horizonUrl = this.config.horizonUrl;
+    if (!horizonUrl) {
+      throw new Error(
+        "horizonUrl is required in client config to validate reroute destination",
+      );
+    }
+
+    const detector = new AccountMergeDetector(this, horizonUrl);
+    await detector.validateDestination(newAddress);
+
+    // Emit rerouted event so consumers can react
+    this.emit("recipient:rerouted", { invoiceId, oldAddress, newAddress });
+  }
+
+  /**
+   * Finalize an invoice, checking that all recipients are reachable.
+   *
+   * Delegates to PaymentGraphChecker. Throws `UnreachableRecipientError`
+   * unless `allowUnreachable` is set.
+   */
+  async finalizeInvoice(
+    invoiceId: string,
+    options?: { allowUnreachable?: boolean },
+  ): Promise<void> {
+    const { PaymentGraphChecker } = await import(
+      "./graph/PaymentGraphChecker.js"
+    );
+
+    const horizonUrl = this.config.horizonUrl;
+    if (!horizonUrl) {
+      throw new Error(
+        "horizonUrl is required in client config for payment graph checking",
+      );
+    }
+
+    const invoice = await this.getInvoice(invoiceId);
+    const checker = new PaymentGraphChecker({ horizonUrl });
+    await checker.check(invoice, options);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Issue #4 — Wallet Session Manager: connectWallet / disconnectWallet
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Connect a wallet adapter and register it as the active signer.
+   * All subsequent `signTransaction` calls will use this adapter.
+   *
+   * @param adapter - A `WalletAdapter` (e.g. from `WalletSessionManager.detect()`).
+   * @returns The connected Stellar public key.
+   */
+  async connectWallet(adapter: WalletAdapter): Promise<string> {
+    const address = await adapter.connect();
+    this._adapter = adapter;
+
+    // Listen for account changes and update internal reference
+    adapter.onAccountChange((newAddress: string) => {
+      this.emit("wallet:accountChanged", newAddress);
+    });
+
+    this.emit("wallet:connected", { walletName: adapter.name, address });
+    return address;
+  }
+
+  /**
+   * Disconnect the currently connected wallet adapter.
+   */
+  disconnectWallet(): void {
+    if (this._adapter) {
+      this._adapter.disconnect();
+      const walletName = this._adapter.name;
+      this._adapter = null;
+      this.emit("wallet:disconnected", { walletName });
+    }
+  }
 }
 
 /** Coerce a native-decoded scalar (bigint | number | string) into a bigint, defaulting to 0n. */
