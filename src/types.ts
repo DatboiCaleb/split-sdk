@@ -1321,3 +1321,160 @@ export interface SignedBridgeProof {
   /** Source-chain address of the signer. */
   signerAddress: string;
 }
+
+// ---------------------------------------------------------------------------
+// Split Ratio Validator Types
+// ---------------------------------------------------------------------------
+
+/** A single recipient share entry consumed by the ratio validator. */
+export interface RecipientShare {
+  /** Stellar address of the recipient. */
+  address: string;
+  /** Share expressed as a decimal fraction (e.g. 0.4). Must sum to 1.0. */
+  share: number;
+}
+
+/** Split configuration consumed by the ratio validator. */
+export interface SplitConfig {
+  /** Ordered list of recipient shares. */
+  shares: RecipientShare[];
+  /** Floating-point comparison tolerance. Defaults to 1e-9. */
+  tolerance?: number;
+}
+
+/** Structured validation result from split ratio checks. */
+export interface SplitRatioValidationResult {
+  /** True when all checks pass. */
+  valid: boolean;
+  /** Human-readable error messages. */
+  errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Trustline Checker Types
+// ---------------------------------------------------------------------------
+
+/** Result for a single recipient's trustline check. */
+export interface TrustlineEntry {
+  /** Stellar address of the recipient. */
+  address: string;
+  /** Whether the recipient has a trustline for the required token. */
+  hasTrustline: boolean;
+  /** The asset code (e.g. "USDC") the trustline must cover, if applicable. */
+  assetCode?: string;
+  /** The asset issuer / contract address for which the trustline must exist. */
+  assetIssuer?: string;
+}
+
+/** Full trustline check report. */
+export interface TrustlineCheckResult {
+  /** True when every recipient has the required trustline. */
+  allReady: boolean;
+  /** Per-recipient results. */
+  entries: TrustlineEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// XDR Parser Types
+// ---------------------------------------------------------------------------
+
+/** Decoded representation of a single operation within a transaction. */
+export interface ParsedOperation {
+  /** Human-readable operation type (e.g. "payment"). */
+  type: string;
+  /** The raw operation body as a JSON-serialisable object. */
+  body: Record<string, unknown>;
+  /** Optional source account override for this operation. */
+  source?: string;
+}
+
+/** Structured representation of a decoded transaction envelope. */
+export interface ParsedEnvelope {
+  /** Base64-encoded source XDR that was parsed. */
+  sourceXdr: string;
+  /** Envelope type name. */
+  envelopeType: string;
+  /** Parsed transaction body. */
+  transaction: ParsedTransaction;
+  /** List of signatures attached to the envelope. */
+  signatures: ParsedSignature[];
+}
+
+/** Parsed representation of the inner transaction. */
+export interface ParsedTransaction {
+  /** Source account public key (G...). */
+  sourceAccount: string;
+  /** Sequence number. */
+  sequence: bigint;
+  /** Fee in stroops. */
+  fee: number;
+  /** Parsed memo, if present. */
+  memo: ParsedMemo | null;
+  /** Ordered list of operations. */
+  operations: ParsedOperation[];
+  /** Time bounds, if set. */
+  timeBounds?: ParsedTimeBounds;
+}
+
+/** Parsed memo representation. */
+export interface ParsedMemo {
+  /** Memo type (e.g. "id", "text", "hash", "return", "none"). */
+  type: string;
+  /** Memo value, stringified for readability. */
+  value: string | null;
+}
+
+/** Parsed signature. */
+export interface ParsedSignature {
+  /** Hex-encoded signature hint (last 4 bytes of the public key). */
+  hint: string;
+  /** Hex-encoded signature bytes. */
+  signature: string;
+}
+
+/** Decoded time bounds. */
+export interface ParsedTimeBounds {
+  /** Minimum time bound (Unix timestamp), or 0 if no lower bound. */
+  minTime: number;
+  /** Maximum time bound (Unix timestamp), or 0 if no upper bound. */
+  maxTime: number;
+}
+
+// ---------------------------------------------------------------------------
+// Fee Surge Detector Types
+// ---------------------------------------------------------------------------
+
+/** Configuration for the fee surge detector. */
+export interface FeeSurgeConfig {
+  /** Fee percentile to track. Defaults to "p50". */
+  percentile?: "p10" | "p50" | "p95";
+  /** Congestion threshold multiplier. Defaults to 2. */
+  surgeMultiplier?: number;
+  /** Recommended fee multiplier applied during surge. Defaults to 1.5. */
+  surgeFeeMultiplier?: number;
+  /** How long a surge recommendation is cached (ms). Defaults to 30_000. */
+  cacheTtlMs?: number;
+  /** Maximum fee in stroops the surge detector will ever recommend. Defaults to 10_000_000. */
+  maxFeeStroops?: number;
+}
+
+/** Congestion level derived from fee statistics. */
+export type CongestionLevel = "low" | "medium" | "high";
+
+/** A fee recommendation produced by the surge detector. */
+export interface FeeRecommendation {
+  /** Recommended fee in stroops. */
+  fee: bigint;
+  /** The base fee used as reference (in stroops). */
+  baseFee: bigint;
+  /** The observed fee-percentile value (in stroops). */
+  observedFee: bigint;
+  /** Current congestion level. */
+  congestion: CongestionLevel;
+  /** Whether surge pricing is active. */
+  surgeActive: boolean;
+  /** Multiplier applied to the base fee. */
+  multiplier: number;
+  /** Unix timestamp (ms) when this recommendation was produced. */
+  timestamp: number;
+}
