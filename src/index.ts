@@ -968,3 +968,55 @@ export {
   RpcConnectionError,
   isRpcConnectionError,
 } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Memo Builder
+// ---------------------------------------------------------------------------
+
+export {
+  buildMemo,
+  buildHashMemo,
+  buildIdMemo,
+  parseMemo,
+  isStellarSplitMemo,
+  MEMO_PREFIX,
+} from "./memoBuilder.js";
+export type {
+  ParsedMemo,
+  SplitConfig,
+} from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Asset Issuer Verifier
+// ---------------------------------------------------------------------------
+
+export { verifyAssetIssuer } from "./assetIssuerVerifier.js";
+export type { IssuerVerificationResult } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// SEP-24 Interactive Transfer Handler
+// ---------------------------------------------------------------------------
+
+export {
+  Sep24Handler,
+  resolveAnchorTransferServer,
+} from "./sep/sep24Handler.js";
+export type { Sep24HandlerEventMap, Sep24InitParams } from "./sep/sep24Handler.js";
+export type {
+  Sep24TransactionRecord,
+  Sep24Status,
+  Sep24StatusChangedEvent,
+} from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Horizon Collection Paginator
+// ---------------------------------------------------------------------------
+
+export { paginate, collectAll } from "./horizonPaginator.js";
+export type { CollectionPage, HorizonPaginatorOptions } from "./types.js";
+export {
+  InMemoryCursorStore as PaginatorCursorStore,
+  setDefaultCursorStore,
+  getDefaultCursorStore,
+  buildCursorKey,
+} from "./cursorTracker.js";
