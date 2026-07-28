@@ -37,11 +37,32 @@ export interface ArbiterVote {
 /** Lifecycle status of an invoice. */
 export type InvoiceStatus = "Pending" | "Released" | "Refunded" | "Cancelled";
 
+/** One recorded status change in an invoice's lifecycle. */
+export interface TransitionRecord {
+  from: InvoiceStatus;
+  to: InvoiceStatus;
+  /** Unix timestamp in seconds when the transition was applied. */
+  at: number;
+}
+
 /** Error thrown for invalid invoice state transitions. */
-export class InvalidTransitionError extends Error {
-  constructor(from: InvoiceStatus, to: InvoiceStatus) {
-    super(`Invalid transition from "${from}" to "${to}"`);
+export class InvalidTransitionError extends StellarSplitError {
+  readonly from: InvoiceStatus;
+  readonly to: InvoiceStatus;
+  /** The set of statuses `from` was allowed to transition to. */
+  readonly allowed: InvoiceStatus[];
+
+  constructor(from: InvoiceStatus, to: InvoiceStatus, allowed: InvoiceStatus[] = []) {
+    super(
+      `Invalid transition from "${from}" to "${to}"`,
+      "INVALID_TRANSITION",
+      { from, to, allowed },
+    );
     this.name = "InvalidTransitionError";
+    this.from = from;
+    this.to = to;
+    this.allowed = allowed;
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -157,6 +178,8 @@ export interface Invoice {
   prerequisites?: string[];
   /** ID of the parent invoice this was cloned from (clone chain). */
   parentInvoiceId?: string;
+  /** Ordered record of status transitions applied via InvoiceStateMachine. */
+  statusHistory?: TransitionRecord[];
   /** Depth in the clone chain (0 = root, 1 = cloned from root, etc.). */
   cloneDepth?: number;
   /** The address of the NFT contract used for gating, if any. */

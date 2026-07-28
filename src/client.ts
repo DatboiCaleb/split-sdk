@@ -16,7 +16,28 @@ import {
   xdr,
   Keypair,
 } from "@stellar/stellar-sdk";
-import { EventEmitter } from "events";
+import { TypedEventEmitter } from "./events/TypedEventEmitter.js";
+import type { CircuitStateChangeLogEvent } from "./resilience/CircuitBreaker.js";
+import { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
+import type { StateMachineConfig } from "./types/state.js";
+import { RpcLoadBalancer } from "./rpc/RpcLoadBalancer.js";
+import type { EndpointConfig, RpcLoadBalancerOptions } from "./rpc/RpcLoadBalancer.js";
+
+/** Events emitted by {@link StellarSplitClient}. */
+export type SplitClientEventMap = {
+  /** The advanced circuit breaker (src/resilience/CircuitBreaker.ts) tripped open. */
+  "circuit:open": undefined;
+  /** The advanced circuit breaker closed after a successful probe. */
+  "circuit:close": undefined;
+  /** The advanced circuit breaker entered half-open (probing) state. */
+  "circuit:half-open": undefined;
+  /** Fired on every advanced circuit breaker state transition. */
+  circuit_state_change: CircuitStateChangeLogEvent;
+  /** An RpcLoadBalancer endpoint (from `rpcEndpoints`) was quarantined. */
+  "endpoint:demoted": { url: string; reason: "consecutive_errors" | "failed_health_check" };
+  /** A previously quarantined RpcLoadBalancer endpoint passed its health check and rejoined rotation. */
+  "endpoint:reinstated": { url: string };
+};
 import { signTransaction } from "./wallet.js";
 import { telemetry } from "./telemetry.js";
 import { TelemetryHookManager } from "./telemetryHooks.js";
@@ -171,6 +192,7 @@ import {
   ValidationError,
   StellarSplitError,
   AdminOperationError,
+  PassphraseMismatchError,
 } from "./errors.js";
 import { replayEvents } from "./events.js";
 import { subscribeToInvoice as _subscribeToInvoice } from "./stream.js";
@@ -232,6 +254,9 @@ import type {
   RetryConfig as ResilientRetryConfig,
   CircuitBreakerConfig,
 } from "./resilientRpc.js";
+import { NetworkPassphraseValidator } from "./network/NetworkPassphraseValidator.js";
+import type { OtelHandle, TelemetryOptions } from "./telemetry/OtelExporter.js";
+import { createOtelHandle, noopOtelHandle, OtelExporter } from "./telemetry/OtelExporter.js";
 
 /** A plugin that extends StellarSplitClient with new methods and lifecycle hooks. */
 export interface StellarSplitPlugin {
@@ -252,33 +277,6 @@ export interface StellarSplitPlugin {
    */
   onDestroy?(client: StellarSplitClient): void | Promise<void>;
 }
-/**
-   * Internal startup validation. Throws PassphraseMismatchError if 
-   * the configured passphrase doesn't match the RPC node.
-   */
-  private async _validateStartupConfig(): Promise<void> {
-    const primaryUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0]! : this.config.rpcUrl;
-    const result = await NetworkPassphraseValidator.validate(
-      this.config.networkPassphrase,
-      primaryUrl
-    );
-    if (result.mismatch) {
-      throw new PassphraseMismatchError(result.configured, result.reported);
-    }
-  }
-
-  /**
-   * Live network switcher. Migrates state and re-subscribes.
-   * @param network - 'mainnet' | 'testnet' | 'futurenet'
-   */
-  public async switchTo(network: 'mainnet' | 'testnet' | 'futurenet'): Promise<void> {
-    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
-    return NetworkSwitcher.switchTo(network, this);
-  }
-/** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
-  validatePassphrase?: boolean;
-  /** Map of available networks for the live switcher. */
-  networks?: Record<string, NetworkConfig>;
 
 /** Configuration for StellarSplitClient. */
 export interface StellarSplitClientConfig {
@@ -440,6 +438,39 @@ export interface StellarSplitClientConfig {
    * instead of returning stale data while the transaction is pending.
    */
   optimisticCache?: boolean;
+  /** Whether to validate the passphrase against the RPC node on startup. Defaults to true. */
+  validatePassphrase?: boolean;
+  /** Map of available networks for the live switcher. */
+  networks?: Record<string, NetworkConfig>;
+  /**
+   * Optional override for the allowed invoice status transition graph used
+   * by InvoiceStateMachine. When omitted, the default graph is used
+   * (Pending -> Released | Refunded | Cancelled; the rest are terminal).
+   */
+  stateMachine?: StateMachineConfig;
+  /**
+   * Optional list of Soroban RPC endpoints to distribute calls across via
+   * health-weighted round-robin ({@link RpcLoadBalancer}). When provided,
+   * this takes priority over `rpcUrl` for selecting the primary server;
+   * endpoints that error repeatedly or exceed their latency budget are
+   * quarantined and automatically reinstated after a passing health check.
+   * When omitted, the existing single/array `rpcUrl` behavior is unchanged.
+   */
+  rpcEndpoints?: EndpointConfig[];
+  /** Optional tuning for the {@link RpcLoadBalancer} created from `rpcEndpoints`. */
+  rpcLoadBalancer?: RpcLoadBalancerOptions;
+  /**
+   * Optional OpenTelemetry instrumentation. When `enabled`, every public
+   * SplitClient method is wrapped in a span (with `stellar.network`,
+   * `invoice.id`, `rpc.url`, `rpc.duration_ms`, and `tx.hash` attributes
+   * where applicable) and three metrics are recorded:
+   * `split_sdk.rpc_call.count`, `split_sdk.rpc_call.duration`, and
+   * `split_sdk.tx.error.count`. Fully opt-in and zero-overhead when
+   * omitted/disabled -- `@opentelemetry/api` is never required unless this
+   * is turned on. Named `otel` (not `telemetry`) to avoid colliding with
+   * the pre-existing anonymous-usage `telemetry` option above.
+   */
+  otel?: TelemetryOptions;
 }
 
 /** Network configuration. */
@@ -547,12 +578,8 @@ export function verifyCompletionProof(proof: CompletionProof): {
   }
   return { valid: true };
 }
-// ... end of constructor logic
-    if (config.validatePassphrase !== false) {
-      this._validateStartupConfig();
-    }
 
-export class StellarSplitClient extends EventEmitter {
+export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _mainServer!: SorobanRpc.Server;
   private _standby: WarmStandby | null = null;
   private _queue = new PriorityQueue();
@@ -593,6 +620,8 @@ export class StellarSplitClient extends EventEmitter {
   private _adminKeypair: Keypair | null = null;
   /** Resilient RPC wrapper providing retry + circuit breaker for all RPC calls. */
   private _resilientRpc: ResilientRpcClient | null = null;
+  /** Health-weighted multi-endpoint balancer, present only when `config.rpcEndpoints` is set. */
+  private _rpcLoadBalancer: RpcLoadBalancer | null = null;
   /**
    * Optional secondary circuit breaker (src/resilience/CircuitBreaker.ts)
    * guarding the transaction-submission path (`_submitTx`). Distinct from
@@ -602,6 +631,15 @@ export class StellarSplitClient extends EventEmitter {
   private _advancedCircuitBreaker: AdvancedCircuitBreaker | null = null;
   /** Optimistic UI cache for Invoice reads during a pending pay() call. */
   private _optimisticCache: OptimisticCache<Invoice> | null = null;
+  private readonly _stateMachine: InvoiceStateMachine;
+  /**
+   * OpenTelemetry handle. Stays {@link noopOtelHandle} (zero overhead, no
+   * span objects created) unless `config.otel.enabled` is true, in which
+   * case it's swapped for a real handle once {@link _otelInitPromise}
+   * resolves (see the constructor).
+   */
+  private _otel: OtelHandle = noopOtelHandle;
+  private _otelInitPromise: Promise<void> | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private get server(): any {
@@ -703,9 +741,17 @@ export class StellarSplitClient extends EventEmitter {
     if (config.timeout !== undefined) {
       this._timeoutManager = new TimeoutManager(config.timeout);
     }
-    this._mainServer = new SorobanRpc.Server(primaryUrl, {
-      allowHttp: primaryUrl.startsWith("http://"),
-    });
+    if (config.rpcEndpoints && config.rpcEndpoints.length > 0) {
+      this._rpcLoadBalancer = new RpcLoadBalancer(config.rpcEndpoints, config.rpcLoadBalancer);
+      this._rpcLoadBalancer.on("endpoint:demoted", (event) => this.emit("endpoint:demoted", event));
+      this._rpcLoadBalancer.on("endpoint:reinstated", (event) => this.emit("endpoint:reinstated", event));
+      this._rpcLoadBalancer.start();
+      this._mainServer = this._rpcLoadBalancer.selectEndpoint().server as SorobanRpc.Server;
+    } else {
+      this._mainServer = new SorobanRpc.Server(primaryUrl, {
+        allowHttp: primaryUrl.startsWith("http://"),
+      });
+    }
 
     // Circuit breaker + retry resilience layer (Issue #419)
     if (config.circuitBreaker) {
@@ -715,9 +761,9 @@ export class StellarSplitClient extends EventEmitter {
         config.circuitBreaker.retry,
         config.circuitBreaker.breaker,
       );
-      this._resilientRpc.on("circuit:open", () => this.emit("circuit:open"));
-      this._resilientRpc.on("circuit:close", () => this.emit("circuit:close"));
-      this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open"));
+      this._resilientRpc.on("circuit:open", () => this.emit("circuit:open", undefined));
+      this._resilientRpc.on("circuit:close", () => this.emit("circuit:close", undefined));
+      this._resilientRpc.on("circuit:half-open", () => this.emit("circuit:half-open", undefined));
     }
 
     if (config.advancedCircuitBreaker) {
@@ -729,6 +775,8 @@ export class StellarSplitClient extends EventEmitter {
     if (config.optimisticCache) {
       this._optimisticCache = new OptimisticCache<Invoice>();
     }
+
+    this._stateMachine = new InvoiceStateMachine(config.stateMachine);
 
     if (
       !this._rpcClient &&
@@ -823,6 +871,172 @@ export class StellarSplitClient extends EventEmitter {
     for (const p of this._pluginInstances) {
       p.onInit?.(this);
     }
+
+    if (config.validatePassphrase !== false) {
+      this._validateStartupConfig();
+    }
+
+    // OpenTelemetry instrumentation (opt-in, zero overhead when omitted/disabled).
+    if (config.otel?.enabled) {
+      const otelExporter = config.otel.exporterUrl
+        ? new OtelExporter({
+            exporterUrl: config.otel.exporterUrl,
+            serviceName: config.otel.serviceName,
+          })
+        : undefined;
+      this._otelInitPromise = createOtelHandle(config.otel, otelExporter)
+        .then((handle) => {
+          this._otel = handle;
+        })
+        .catch(() => {
+          // `@opentelemetry/api` isn't installed, or init otherwise failed --
+          // stay on the zero-overhead no-op handle rather than throwing.
+        });
+      this._instrumentOtel();
+    }
+  }
+
+  /**
+   * Wraps every public StellarSplitClient method (every own, non-underscore-
+   * prefixed function on the prototype) so that calling it opens an OTel
+   * span (and records `split_sdk.rpc_call.*` / `split_sdk.tx.error.count`
+   * metrics) around the original implementation. Only ever invoked from the
+   * constructor when `config.otel.enabled` is true -- when disabled, this
+   * method is never called, no methods are wrapped, and there is no
+   * overhead whatsoever.
+   *
+   * Async methods (the vast majority: `pay`, `createInvoice`, `getInvoice`,
+   * ...) are wrapped with an async-aware span helper. The handful of
+   * synchronous methods (e.g. `switchNetwork`, `getSSEEndpoint`,
+   * `getPoolStats`) are wrapped with a synchronous helper that never awaits
+   * anything, so their return type/signature is preserved for callers.
+   */
+  private _instrumentOtel(): void {
+    const proto = Object.getPrototypeOf(this) as object;
+    const self = this as unknown as Record<string, unknown>;
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      if (name === "constructor" || name.startsWith("_")) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(proto, name);
+      if (!descriptor || typeof descriptor.value !== "function") continue;
+      const original = descriptor.value as (...args: unknown[]) => unknown;
+      const isAsync = original.constructor.name === "AsyncFunction";
+      if (isAsync) {
+        self[name] = (...args: unknown[]) =>
+          this._withOtelSpanAsync(name, args, () => original.apply(this, args) as Promise<unknown>);
+      } else {
+        self[name] = (...args: unknown[]) =>
+          this._withOtelSpanSync(name, args, () => original.apply(this, args));
+      }
+    }
+  }
+
+  /** Best-effort `invoice.id` extraction from a method's first argument. */
+  private _otelInvoiceId(args: unknown[]): string | undefined {
+    const first = args[0];
+    if (typeof first === "string") return first;
+    if (first && typeof first === "object") {
+      const obj = first as Record<string, unknown>;
+      for (const key of ["invoiceId", "invoice_id", "id"]) {
+        const value = obj[key];
+        if (typeof value === "string") return value;
+      }
+    }
+    return undefined;
+  }
+
+  /** Best-effort `tx.hash` extraction from a method's resolved return value. */
+  private _otelTxHash(result: unknown): string | undefined {
+    if (result && typeof result === "object") {
+      const value = (result as Record<string, unknown>).txHash;
+      if (typeof value === "string") return value;
+    }
+    return undefined;
+  }
+
+  /** Shared span attribute setup applied to both the sync and async span helpers. */
+  private _otelStartSpan(name: string, args: unknown[]) {
+    const span = this._otel.startSpan(name);
+    span.setAttribute("stellar.network", this.config.networkPassphrase);
+    const rpcUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0] : this.config.rpcUrl;
+    if (rpcUrl) span.setAttribute("rpc.url", rpcUrl);
+    const invoiceId = this._otelInvoiceId(args);
+    if (invoiceId) span.setAttribute("invoice.id", invoiceId);
+    return span;
+  }
+
+  private async _withOtelSpanAsync<T>(
+    name: string,
+    args: unknown[],
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    if (this._otelInitPromise) await this._otelInitPromise;
+    const span = this._otelStartSpan(name, args);
+    const startedAt = Date.now();
+    try {
+      const result = await fn();
+      const durationMs = Date.now() - startedAt;
+      span.setAttribute("rpc.duration_ms", durationMs);
+      const txHash = this._otelTxHash(result);
+      if (txHash) span.setAttribute("tx.hash", txHash);
+      this._otel.recordRpcCall(durationMs, { method: name });
+      span.end();
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      span.setAttribute("rpc.duration_ms", durationMs);
+      span.recordError(error);
+      this._otel.recordRpcCall(durationMs, { method: name, error: true });
+      this._otel.recordTxError({ method: name });
+      span.end();
+      throw error;
+    }
+  }
+
+  private _withOtelSpanSync<T>(name: string, args: unknown[], fn: () => T): T {
+    const span = this._otelStartSpan(name, args);
+    const startedAt = Date.now();
+    try {
+      const result = fn();
+      const durationMs = Date.now() - startedAt;
+      span.setAttribute("rpc.duration_ms", durationMs);
+      const txHash = this._otelTxHash(result);
+      if (txHash) span.setAttribute("tx.hash", txHash);
+      this._otel.recordRpcCall(durationMs, { method: name });
+      span.end();
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      span.setAttribute("rpc.duration_ms", durationMs);
+      span.recordError(error);
+      this._otel.recordRpcCall(durationMs, { method: name, error: true });
+      this._otel.recordTxError({ method: name });
+      span.end();
+      throw error;
+    }
+  }
+
+  /**
+   * Internal startup validation. Throws PassphraseMismatchError if
+   * the configured passphrase doesn't match the RPC node.
+   */
+  private async _validateStartupConfig(): Promise<void> {
+    const primaryUrl = Array.isArray(this.config.rpcUrl) ? this.config.rpcUrl[0]! : this.config.rpcUrl;
+    const result = await NetworkPassphraseValidator.validate(
+      this.config.networkPassphrase,
+      primaryUrl
+    );
+    if (result.mismatch) {
+      throw new PassphraseMismatchError(result.configured, result.reported);
+    }
+  }
+
+  /**
+   * Live network switcher. Migrates state and re-subscribes.
+   * @param network - 'mainnet' | 'testnet' | 'futurenet'
+   */
+  public async switchTo(network: 'mainnet' | 'testnet' | 'futurenet'): Promise<void> {
+    const { NetworkSwitcher } = await import("./network/NetworkSwitcher.js");
+    return NetworkSwitcher.switchTo(network, this);
   }
 
   /**
@@ -1861,6 +2075,45 @@ export class StellarSplitClient extends EventEmitter {
   }
 
   /**
+   * The InvoiceStateMachine backing updateInvoiceStatus(). Exposed so
+   * consumers can attach `on('transition', ...)` / `on('invalidTransition', ...)`
+   * lifecycle hooks.
+   */
+  get stateMachine(): InvoiceStateMachine {
+    return this._stateMachine;
+  }
+
+  /**
+   * The RpcLoadBalancer backing multi-endpoint calls, present only when
+   * `config.rpcEndpoints` was provided. `null` for single-`rpcUrl` configs.
+   * Exposed so consumers can attach `on('endpoint:demoted', ...)` /
+   * `on('endpoint:reinstated', ...)` hooks or inspect `getEndpointStates()`.
+   */
+  get rpcLoadBalancer(): RpcLoadBalancer | null {
+    return this._rpcLoadBalancer;
+  }
+
+  /**
+   * Updates an invoice's status, validating the transition through
+   * InvoiceStateMachine. Throws InvalidTransitionError (with
+   * `{ from, to, allowed }`) if the transition isn't allowed from the
+   * invoice's current status.
+   *
+   * When optimisticCache is enabled, the result is written into it
+   * immediately so subsequent getInvoice() calls see the new status.
+   */
+  async updateInvoiceStatus(invoiceId: string, to: InvoiceStatus): Promise<Invoice> {
+    const current = await this.getInvoice(invoiceId);
+    const updated = this._stateMachine.transition(current, to);
+
+    if (this._optimisticCache) {
+      this._optimisticCache.applyOptimistic(invoiceId, updated, current).commit();
+    }
+
+    return updated;
+  }
+
+  /**
    * Subscribe to typed InvoiceEvent payloads for a single invoice via the
    * shared SubscriptionManager, instead of polling fetch methods. The first
    * call for a given invoice ID starts the manager's poll-then-push bridge
@@ -2325,6 +2578,7 @@ export class StellarSplitClient extends EventEmitter {
       await this._queue.shutdown();
     } finally {
       this._standby?.stop();
+      this._rpcLoadBalancer?.stop();
 
       this._wsTransport?.disconnect();
       this._wsTransport = null;

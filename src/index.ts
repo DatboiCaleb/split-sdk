@@ -322,8 +322,18 @@ export type {
   CompletionProof,
   AdminFreezeResult,
   AdminUnfreezeResult,
+  TransitionRecord,
 } from "./types.js";
 export { InvalidTransitionError } from "./types.js";
+
+// Invoice status transition validation (state machine)
+export { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
+export type {
+  InvoiceStateMachineEventMap,
+  TransitionEvent,
+  InvalidTransitionEvent,
+} from "./state/InvoiceStateMachine.js";
+export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
 export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
@@ -857,6 +867,38 @@ export { OptimisticCache } from "./cache/OptimisticCache.js";
 export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
 
 // ---------------------------------------------------------------------------
+// Typed, zero-dependency event emitter (works in Node, browser, and edge runtimes)
+// ---------------------------------------------------------------------------
+
+export { TypedEventEmitter, AbortError } from "./events/TypedEventEmitter.js";
+export type { Unsubscribe, EventMap } from "./events/TypedEventEmitter.js";
+export type { SplitClientEventMap } from "./client.js";
+
+// ---------------------------------------------------------------------------
+// Multi-endpoint RPC load balancing
+// ---------------------------------------------------------------------------
+
+export { RpcLoadBalancer } from "./rpc/RpcLoadBalancer.js";
+export type {
+  EndpointConfig,
+  RpcLoadBalancerOptions,
+  RpcEndpointServer,
+  RpcLoadBalancerEventMap,
+  EndpointSnapshot,
+} from "./rpc/RpcLoadBalancer.js";
+
+// ---------------------------------------------------------------------------
+// Optional OpenTelemetry instrumentation (opt-in via `otel: { enabled: true }`;
+// `@opentelemetry/api` is never required unless a consumer turns this on).
+// ---------------------------------------------------------------------------
+
+export { OtelExporter, createOtelHandle, noopOtelHandle } from "./telemetry/OtelExporter.js";
+export type {
+  TelemetryOptions,
+  OtelHandle,
+  OtelSpanHandle,
+  OtlpTracePayload,
+} from "./telemetry/OtelExporter.js";
 // #476 — OperationBuilder: fluent multi-op envelope builder with dry-run
 // ---------------------------------------------------------------------------
 
