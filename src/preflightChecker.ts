@@ -1,4 +1,6 @@
 import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+import { checkTrustlines } from "./trustlineChecker.js";
+import type { TrustlineCheckResult } from "./trustlineChecker.js";
 
 export type PayerReadinessReason =
   | "account_not_found"
