@@ -476,6 +476,69 @@ export type {
 export { generateMerkleProof, verifyMerkleProof } from "./merkle.js";
 export type { MerkleProof } from "./merkle.js";
 
+// Simulation sandbox — fork ledger state via simulateTransaction and run
+// sequences of SDK operations against it without touching the network.
+export { SimulationSandbox } from "./sandbox/SimulationSandbox.js";
+export type {
+  SandboxClient,
+  SimulationCost,
+  SimulationResult,
+  SandboxInvoiceRecord,
+  SandboxPaymentRecord,
+  SandboxCallLogEntry,
+  SandboxLedgerDiff,
+} from "./sandbox/SimulationSandbox.js";
+
+// Horizon SSE stream manager — cursor-bookmarked payments/operations
+// streaming with reconnect-and-resume, dedupe, and replay cutoff.
+export {
+  HorizonStreamManager,
+  InMemoryCursorStore,
+  createLocalStorageCursorStore,
+  createSessionStorageCursorStore,
+  DEFAULT_REPLAY_CUTOFF_MS,
+  DEFAULT_DEDUPE_BUFFER_SIZE,
+  DEFAULT_RECONNECT_DELAY_MS,
+} from "./horizon/HorizonStreamManager.js";
+export type {
+  HorizonStreamRecord,
+  HorizonCallBuilderLike,
+  HorizonStreamSource,
+  CursorStore,
+  HorizonStreamKind,
+  HorizonStreamManagerConfig,
+  HorizonStreamEventMap,
+} from "./horizon/HorizonStreamManager.js";
+
+// Adaptive rate-limit throttle — sizes a token bucket from observed
+// X-RateLimit-* headers and backs off further on 429s.
+export {
+  AdaptiveThrottle,
+  DEFAULT_PENALTY_DURATION_MS,
+} from "./throttle/AdaptiveThrottle.js";
+export type { AdaptiveThrottleConfig, ThrottleStats } from "./throttle/AdaptiveThrottle.js";
+export { parseRateLimitHeaders } from "./throttle/RateLimitParser.js";
+export type { HeadersLike, RateLimitInfo } from "./throttle/RateLimitParser.js";
+
+// Receipt chain — SHA-256-linked, tamper-evident payment receipt history
+// per invoice. `PaymentReceipt` is aliased to `ChainPaymentReceipt` here to
+// avoid colliding with the unrelated `PaymentReceipt` already exported from
+// receipt.js (a compiled multi-payment summary receipt).
+export {
+  ReceiptChain,
+  GENESIS_PREV_HASH,
+  InMemoryReceiptChainStorage,
+  createLocalStorageReceiptChainStorage,
+  createSessionStorageReceiptChainStorage,
+  receiptChainStorageKey,
+} from "./receipts/ReceiptChain.js";
+export type { ReceiptChainStorage } from "./receipts/ReceiptChain.js";
+export type {
+  PaymentReceipt as ChainPaymentReceipt,
+  ReceiptChainEntry,
+  ChainVerificationResult,
+} from "./types/receipts.js";
+
 // Connection multiplexer functionality
 export { MultiplexedClient } from "./multiplexer.js";
 export type { WeightedEndpoint } from "./multiplexer.js";
@@ -757,3 +820,99 @@ export type {
   RebuildOptions,
 } from "./types/timeline.js";
 export type { PaymentTimelineReconstructorConfig } from "./timeline/PaymentTimelineReconstructor.js";
+// ---------------------------------------------------------------------------
+// Streaming subscriptions (SubscriptionManager)
+// ---------------------------------------------------------------------------
+
+export { SubscriptionManager, getSubscriptionManager } from "./streaming/SubscriptionManager.js";
+export type { EventCursor, SubscriptionManagerLifecycleEvent } from "./types/events.js";
+export type { SubscriptionOptions as SubscriptionManagerOptions } from "./types/events.js";
+export { createStorageAdapter, MemoryStorageAdapter } from "./storage/storageAdapter.js";
+export type { StorageAdapter, StorageKind } from "./storage/storageAdapter.js";
+
+// ---------------------------------------------------------------------------
+// Resilience (advanced CircuitBreaker)
+// ---------------------------------------------------------------------------
+
+export { CircuitBreaker as AdvancedCircuitBreaker } from "./resilience/CircuitBreaker.js";
+export type {
+  CircuitState as AdvancedCircuitState,
+  CircuitBreakerOptions as AdvancedCircuitBreakerOptions,
+  CircuitBreakerStateSnapshot as AdvancedCircuitBreakerStateSnapshot,
+  CircuitBreakerLogger as AdvancedCircuitBreakerLogger,
+} from "./resilience/CircuitBreaker.js";
+
+// ---------------------------------------------------------------------------
+// Waterfall payment routing
+// ---------------------------------------------------------------------------
+
+export { WaterfallRouter } from "./routing/WaterfallRouter.js";
+export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } from "./types/routing.js";
+
+// ---------------------------------------------------------------------------
+// Optimistic UI cache
+// ---------------------------------------------------------------------------
+
+export { OptimisticCache } from "./cache/OptimisticCache.js";
+export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
+
+// ---------------------------------------------------------------------------
+// #476 — OperationBuilder: fluent multi-op envelope builder with dry-run
+// ---------------------------------------------------------------------------
+
+export { OperationBuilder } from "./builder/OperationBuilder.js";
+export type {
+  PaymentOptions as OperationBuilderPaymentOptions,
+  InvokeHostFnOptions,
+  BumpSequenceOptions,
+  TimeboundsOptions,
+  DryRunResult,
+  SubmitOptions,
+  OperationBuilderConfig,
+} from "./builder/OperationBuilder.js";
+export {
+  EnvelopeLimitError,
+  isEnvelopeLimitError,
+  DryRunFailedError,
+  isDryRunFailedError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #477 — AccountSignerWeightCalculator: multi-sig pre-flight weight check
+// ---------------------------------------------------------------------------
+
+export { AccountSignerWeightCalculator } from "./accounts/AccountSignerWeightCalculator.js";
+export type {
+  ThresholdLevel,
+  SignerWeightResult,
+} from "./accounts/AccountSignerWeightCalculator.js";
+export {
+  InsufficientSignerWeightError,
+  isInsufficientSignerWeightError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #478 — PaymentDeduplicationFingerprinter: content-based payment dedup
+// ---------------------------------------------------------------------------
+
+export { PaymentDeduplicationFingerprinter } from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export type {
+  DeduplicationPayment,
+  CheckResult as DeduplicationCheckResult,
+} from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export {
+  DuplicatePaymentError,
+  isDuplicatePaymentError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #479 — LazyInitializer + SplitClient: on-demand RPC connection
+// ---------------------------------------------------------------------------
+
+export { LazyInitializer } from "./client/LazyInitializer.js";
+export { SplitClient } from "./client/SplitClient.js";
+export type { SplitClientConfig } from "./client/SplitClient.js";
+export {
+  RpcConnectionError,
+  isRpcConnectionError,
+} from "./errors.js";

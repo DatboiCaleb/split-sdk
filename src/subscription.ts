@@ -81,7 +81,7 @@ const DEFAULT_OPTIONS = {
 };
 
 /** Compute a unique event key for deduplication (ledger + topic hash). */
-function computeEventKey(event: SorobanRpc.Api.EventResponse): string {
+export function computeEventKey(event: SorobanRpc.Api.EventResponse): string {
   const topic = event.topic as unknown[];
   const topicStr = Array.isArray(topic) ? topic.join(":") : String(topic);
   return `${event.ledger}:${topicStr}`;
@@ -104,7 +104,7 @@ function parseEventValue(value: unknown): Record<string, unknown> {
 }
 
 /** Parse a Soroban event into an InvoiceEvent. */
-function parseInvoiceEvent(
+export function parseInvoiceEvent(
   event: SorobanRpc.Api.EventResponse,
   contractId: string,
 ): InvoiceEvent | null {
