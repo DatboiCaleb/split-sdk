@@ -332,8 +332,18 @@ export type {
   CompletionProof,
   AdminFreezeResult,
   AdminUnfreezeResult,
+  TransitionRecord,
 } from "./types.js";
 export { InvalidTransitionError } from "./types.js";
+
+// Invoice status transition validation (state machine)
+export { InvoiceStateMachine } from "./state/InvoiceStateMachine.js";
+export type {
+  InvoiceStateMachineEventMap,
+  TransitionEvent,
+  InvalidTransitionEvent,
+} from "./state/InvoiceStateMachine.js";
+export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
 export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
@@ -820,6 +830,16 @@ export type {
   SignedBridgeProof,
 } from "./types.js";
 
+// Timeline reconstructor
+export { PaymentTimelineReconstructor } from "./timeline/PaymentTimelineReconstructor.js";
+export type {
+  TimelineEntry,
+  TimelineEventType,
+  TimelineSource,
+  ReconstructedTimeline,
+  RebuildOptions,
+} from "./types/timeline.js";
+export type { PaymentTimelineReconstructorConfig } from "./timeline/PaymentTimelineReconstructor.js";
 // ---------------------------------------------------------------------------
 // Streaming subscriptions (SubscriptionManager)
 // ---------------------------------------------------------------------------
@@ -855,3 +875,96 @@ export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } fro
 
 export { OptimisticCache } from "./cache/OptimisticCache.js";
 export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
+
+// ---------------------------------------------------------------------------
+// Typed, zero-dependency event emitter (works in Node, browser, and edge runtimes)
+// ---------------------------------------------------------------------------
+
+export { TypedEventEmitter, AbortError } from "./events/TypedEventEmitter.js";
+export type { Unsubscribe, EventMap } from "./events/TypedEventEmitter.js";
+export type { SplitClientEventMap } from "./client.js";
+
+// ---------------------------------------------------------------------------
+// Multi-endpoint RPC load balancing
+// ---------------------------------------------------------------------------
+
+export { RpcLoadBalancer } from "./rpc/RpcLoadBalancer.js";
+export type {
+  EndpointConfig,
+  RpcLoadBalancerOptions,
+  RpcEndpointServer,
+  RpcLoadBalancerEventMap,
+  EndpointSnapshot,
+} from "./rpc/RpcLoadBalancer.js";
+
+// ---------------------------------------------------------------------------
+// Optional OpenTelemetry instrumentation (opt-in via `otel: { enabled: true }`;
+// `@opentelemetry/api` is never required unless a consumer turns this on).
+// ---------------------------------------------------------------------------
+
+export { OtelExporter, createOtelHandle, noopOtelHandle } from "./telemetry/OtelExporter.js";
+export type {
+  TelemetryOptions,
+  OtelHandle,
+  OtelSpanHandle,
+  OtlpTracePayload,
+} from "./telemetry/OtelExporter.js";
+// #476 — OperationBuilder: fluent multi-op envelope builder with dry-run
+// ---------------------------------------------------------------------------
+
+export { OperationBuilder } from "./builder/OperationBuilder.js";
+export type {
+  PaymentOptions as OperationBuilderPaymentOptions,
+  InvokeHostFnOptions,
+  BumpSequenceOptions,
+  TimeboundsOptions,
+  DryRunResult,
+  SubmitOptions,
+  OperationBuilderConfig,
+} from "./builder/OperationBuilder.js";
+export {
+  EnvelopeLimitError,
+  isEnvelopeLimitError,
+  DryRunFailedError,
+  isDryRunFailedError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #477 — AccountSignerWeightCalculator: multi-sig pre-flight weight check
+// ---------------------------------------------------------------------------
+
+export { AccountSignerWeightCalculator } from "./accounts/AccountSignerWeightCalculator.js";
+export type {
+  ThresholdLevel,
+  SignerWeightResult,
+} from "./accounts/AccountSignerWeightCalculator.js";
+export {
+  InsufficientSignerWeightError,
+  isInsufficientSignerWeightError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #478 — PaymentDeduplicationFingerprinter: content-based payment dedup
+// ---------------------------------------------------------------------------
+
+export { PaymentDeduplicationFingerprinter } from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export type {
+  DeduplicationPayment,
+  CheckResult as DeduplicationCheckResult,
+} from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export {
+  DuplicatePaymentError,
+  isDuplicatePaymentError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #479 — LazyInitializer + SplitClient: on-demand RPC connection
+// ---------------------------------------------------------------------------
+
+export { LazyInitializer } from "./client/LazyInitializer.js";
+export { SplitClient } from "./client/SplitClient.js";
+export type { SplitClientConfig } from "./client/SplitClient.js";
+export {
+  RpcConnectionError,
+  isRpcConnectionError,
+} from "./errors.js";

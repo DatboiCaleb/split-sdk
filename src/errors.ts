@@ -751,6 +751,158 @@ export function isWaterfallInsufficientFundsError(err: unknown): err is Waterfal
   return err instanceof WaterfallInsufficientFundsError;
 }
 
+// ---------------------------------------------------------------------------
+// #476 OperationBuilder errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when an operation envelope exceeds the maximum number of operations
+ * (100) or the maximum base fee (10_000_000 stroops).
+ */
+export class EnvelopeLimitError extends StellarSplitError {
+  readonly operationCount: number;
+  readonly limit: number;
+
+  constructor(operationCount: number, limit: number, raw?: string) {
+    super(
+      `Envelope exceeds limit: ${operationCount} operations (max ${limit})`,
+      "ENVELOPE_LIMIT",
+      { operationCount, limit },
+      raw,
+    );
+    this.name = "EnvelopeLimitError";
+    this.operationCount = operationCount;
+    this.limit = limit;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isEnvelopeLimitError(err: unknown): err is EnvelopeLimitError {
+  return err instanceof EnvelopeLimitError;
+}
+
+/**
+ * Thrown when `.submit()` is called but the prior `.dryRun()` simulation
+ * returned an error field from the RPC.
+ */
+export class DryRunFailedError extends StellarSplitError {
+  readonly simulationError: string;
+
+  constructor(simulationError: string, raw?: string) {
+    super(
+      `Dry-run simulation failed: ${simulationError}`,
+      "DRY_RUN_FAILED",
+      { simulationError },
+      raw,
+    );
+    this.name = "DryRunFailedError";
+    this.simulationError = simulationError;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isDryRunFailedError(err: unknown): err is DryRunFailedError {
+  return err instanceof DryRunFailedError;
+}
+
+// ---------------------------------------------------------------------------
+// #477 AccountSignerWeightCalculator errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the provided signing keys do not meet the required threshold
+ * weight for a Stellar multi-sig account.
+ */
+export class InsufficientSignerWeightError extends StellarSplitError {
+  readonly provided: string[];
+  readonly totalWeight: number;
+  readonly required: number;
+
+  constructor(
+    provided: string[],
+    totalWeight: number,
+    required: number,
+    raw?: string,
+  ) {
+    super(
+      `Insufficient signer weight: ${totalWeight} < ${required} (required)`,
+      "INSUFFICIENT_SIGNER_WEIGHT",
+      { provided, totalWeight, required },
+      raw,
+    );
+    this.name = "InsufficientSignerWeightError";
+    this.provided = provided;
+    this.totalWeight = totalWeight;
+    this.required = required;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInsufficientSignerWeightError(err: unknown): err is InsufficientSignerWeightError {
+  return err instanceof InsufficientSignerWeightError;
+}
+
+// ---------------------------------------------------------------------------
+// #478 PaymentDeduplicationFingerprinter errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a payment fingerprint matches a recently submitted payment
+ * within the configured deduplication window.
+ */
+export class DuplicatePaymentError extends StellarSplitError {
+  readonly fingerprint: string;
+  readonly existingTxHash: string;
+  readonly submittedAt: number;
+
+  constructor(fingerprint: string, existingTxHash: string, submittedAt: number, raw?: string) {
+    super(
+      `Duplicate payment detected (fingerprint: ${fingerprint}, existing tx: ${existingTxHash})`,
+      "DUPLICATE_PAYMENT",
+      { fingerprint, existingTxHash, submittedAt },
+      raw,
+    );
+    this.name = "DuplicatePaymentError";
+    this.fingerprint = fingerprint;
+    this.existingTxHash = existingTxHash;
+    this.submittedAt = submittedAt;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isDuplicatePaymentError(err: unknown): err is DuplicatePaymentError {
+  return err instanceof DuplicatePaymentError;
+}
+
+// ---------------------------------------------------------------------------
+// #479 LazyInitializer errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the lazy RPC connection factory fails to connect.
+ * All pending method calls awaiting initialization receive this error.
+ * A retry after failure will re-attempt initialization.
+ */
+export class RpcConnectionError extends StellarSplitError {
+  readonly url: string;
+
+  constructor(url: string, cause?: string, raw?: string) {
+    super(
+      `RPC connection failed for ${url}${cause ? `: ${cause}` : ""}`,
+      "RPC_CONNECTION_ERROR",
+      { url, cause },
+      raw,
+    );
+    this.name = "RpcConnectionError";
+    this.url = url;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isRpcConnectionError(err: unknown): err is RpcConnectionError {
+  return err instanceof RpcConnectionError;
+}
+
 /** Thrown when channel reconciliation fails. */
 export class ChannelReconciliationError extends StellarSplitError {
   readonly reason: string;
