@@ -1153,6 +1153,133 @@ export interface SetCrossChainRefParams {
 }
 
 // ---------------------------------------------------------------------------
+// Sponsorship Configuration
+// ---------------------------------------------------------------------------
+
+/** Configuration for sponsored-reserve onboarding flows. */
+export interface SponsorshipConfig {
+  /** Stellar address of the sponsoring account. */
+  sponsorAddress: string;
+  /** Stellar address of the account being onboarded / sponsored. */
+  sponsoredAddress: string;
+  /** Number of new ledger entries the sponsor will cover. */
+  entryCount: number;
+  /** Optional Horizon URL override for balance checks. */
+  horizonUrl?: string;
+}
+
+/** Result of a pre-submission sponsor reserve check. */
+export interface SponsorReserveCheckResult {
+  /** Whether the sponsor has sufficient XLM reserve. */
+  sufficient: boolean;
+  /** Sponsor's available XLM balance in stroops. */
+  availableStroops: bigint;
+  /** Required XLM reserve in stroops for the new entries. */
+  requiredStroops: bigint;
+  /** Shortfall in stroops (0 if sufficient). */
+  shortfallStroops: bigint;
+}
+
+// ---------------------------------------------------------------------------
+// Invoice Record (expanded with expiresAt for timebounds)
+// ---------------------------------------------------------------------------
+
+/**
+ * Expanded invoice record that includes the expiry timestamp
+ * used for transaction timebounds enforcement.
+ */
+export interface InvoiceRecord {
+  /** Invoice ID. */
+  invoiceId: string;
+  /** Creator address. */
+  creator: string;
+  /** Unix timestamp (seconds) when the invoice expires. */
+  expiresAt: number;
+  /** Current lifecycle status. */
+  status: InvoiceStatus;
+  /** Total amount required. */
+  totalOwed: bigint;
+}
+
+// ---------------------------------------------------------------------------
+// XDR Decoder Types
+// ---------------------------------------------------------------------------
+
+/** Supported XDR types for decoding. */
+export type XDRType =
+  | "TransactionEnvelope"
+  | "TransactionResult"
+  | "TransactionMeta"
+  | "LedgerEntry"
+  | "TransactionV1Envelope"
+  | "FeeBumpTransaction";
+
+/** Decoded TransactionEnvelope as a structured JSON-safe object. */
+export interface DecodedTransactionEnvelope {
+  type: "TransactionEnvelope";
+  tx: {
+    sourceAccount: string;
+    fee: string;
+    seqNum: string;
+    memo?: string;
+    operations: DecodedOperation[];
+    timeBounds?: { minTime: string; maxTime: string };
+  };
+}
+
+/** A single decoded operation within a transaction. */
+export interface DecodedOperation {
+  type: string;
+  sourceAccount?: string;
+  body: Record<string, unknown>;
+}
+
+/** Decoded TransactionResult as a structured JSON-safe object. */
+export interface DecodedTransactionResult {
+  type: "TransactionResult";
+  feeCharged: string;
+  result: {
+    code: string;
+    innerResult?: Record<string, unknown>;
+  };
+}
+
+/** Decoded TransactionMeta as a structured JSON-safe object. */
+export interface DecodedTransactionMeta {
+  type: "TransactionMeta";
+  operations: Array<{
+    changes: Array<{
+      type: string;
+      key: string;
+      before?: Record<string, unknown>;
+      after?: Record<string, unknown>;
+    }>;
+  }>;
+}
+
+/** Decoded LedgerEntry as a structured JSON-safe object. */
+export interface DecodedLedgerEntry {
+  type: "LedgerEntry";
+  lastModifiedLedgerSeq: number;
+  data: {
+    type: string;
+    accountId?: string;
+    balance?: string;
+    flags?: number;
+    signers?: Array<{ key: string; weight: number }>;
+    thresholds?: { low: number; med: number; high: number };
+    [key: string]: unknown;
+  };
+}
+
+/** Union type of all decoded XDR variants. */
+export type DecodedXDR =
+  | DecodedTransactionEnvelope
+  | DecodedTransactionResult
+  | DecodedTransactionMeta
+  | DecodedLedgerEntry;
+
+// ---------------------------------------------------------------------------
 // Confidential Payment Types (Pedersen Commitments)
 // ---------------------------------------------------------------------------
 

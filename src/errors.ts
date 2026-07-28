@@ -1459,3 +1459,79 @@ export class PassphraseMismatchError extends StellarSplitError {
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }
+
+// ---------------------------------------------------------------------------
+// Sponsorship Reserve Verifier Error
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the sponsoring account does not have enough XLM reserve
+ * to cover the new ledger entries it will sponsor.
+ */
+export class InsufficientSponsorReserveError extends StellarSplitError {
+  readonly sponsorAddress: string;
+  readonly availableStroops: bigint;
+  readonly requiredStroops: bigint;
+  readonly newEntries: number;
+
+  constructor(
+    sponsorAddress: string,
+    available: bigint,
+    required: bigint,
+    newEntries: number,
+    raw?: string,
+  ) {
+    super(
+      `Sponsor ${sponsorAddress} has insufficient XLM reserve: ` +
+        `${available} stroops available, ${required} stroops required ` +
+        `(${newEntries} new sponsored entries)`,
+      "INSUFFICIENT_SPONSOR_RESERVE",
+      { sponsorAddress, available: available.toString(), required: required.toString(), newEntries },
+      raw,
+    );
+    this.name = "InsufficientSponsorReserveError";
+    this.sponsorAddress = sponsorAddress;
+    this.availableStroops = available;
+    this.requiredStroops = required;
+    this.newEntries = newEntries;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInsufficientSponsorReserveError(
+  err: unknown,
+): err is InsufficientSponsorReserveError {
+  return err instanceof InsufficientSponsorReserveError;
+}
+
+// ---------------------------------------------------------------------------
+// Payment Expired Error (Invoice Expiry Guard)
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a payment is submitted after the invoice has expired.
+ */
+export class PaymentExpiredError extends StellarSplitError {
+  readonly invoiceId: string;
+  readonly expiresAt: number;
+  readonly now: number;
+
+  constructor(invoiceId: string, expiresAt: number, raw?: string) {
+    const now = Math.floor(Date.now() / 1000);
+    super(
+      `Payment rejected: invoice ${invoiceId} expired at ${expiresAt} (now: ${now})`,
+      "PAYMENT_EXPIRED",
+      { invoiceId, expiresAt, now },
+      raw,
+    );
+    this.name = "PaymentExpiredError";
+    this.invoiceId = invoiceId;
+    this.expiresAt = expiresAt;
+    this.now = now;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPaymentExpiredError(err: unknown): err is PaymentExpiredError {
+  return err instanceof PaymentExpiredError;
+}
