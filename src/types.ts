@@ -125,6 +125,68 @@ export interface Recipient {
 
 import { StellarSplitError } from "./errors.js";
 
+// ---------------------------------------------------------------------------
+// AMM Calculator Types
+// ---------------------------------------------------------------------------
+
+/** Estimated output and price impact for a pool swap. */
+export interface PoolSwapEstimate {
+  /** Expected output amount in stroops. */
+  outputAmount: string;
+  /** Price impact as a percentage string (e.g. "1.23"). */
+  priceImpactPercent: string;
+  /** Asset being sold into the pool. */
+  inputAsset: string;
+  /** Asset being received from the pool. */
+  outputAsset: string;
+  /** Effective swap price (output / input). */
+  effectivePrice: string;
+  /** Current spot price (reserveOut / reserveIn). */
+  spotPrice: string;
+}
+
+/** Proportional pool share for a given number of LP shares. */
+export interface PoolShareResult {
+  /** Proportional share of the first reserve asset in stroops. */
+  shareOfAssetA: string;
+  /** Proportional share of the second reserve asset in stroops. */
+  shareOfAssetB: string;
+  /** Asset identifier for the first reserve. */
+  assetA: string;
+  /** Asset identifier for the second reserve. */
+  assetB: string;
+  /** Total pool shares outstanding. */
+  totalShares: string;
+  /** Number of shares owned by the user. */
+  sharesOwned: string;
+  /** Ownership percentage (e.g. "5.50"). */
+  ownershipPercent: string;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout Escalation Types
+// ---------------------------------------------------------------------------
+
+/** An escalation step that fires before the final payment deadline. */
+export interface EscalationStep {
+  /** Milliseconds before the deadline when this step triggers. */
+  triggerAtMs: number;
+  /** The action to take at this threshold. */
+  action: "warn" | "retryHigherFee" | "switchEndpoint" | "abort";
+  /** Fee multiplier for `retryHigherFee` action (default 1.5). */
+  feeMultiplier?: number;
+}
+
+/** Policy controlling timeout escalation behaviour. */
+export interface TimeoutPolicy {
+  /** Total deadline in milliseconds. */
+  deadlineMs: number;
+  /** Ordered escalation steps (closest to deadline first). */
+  escalations: EscalationStep[];
+}
+
+
+
 export interface HealthCheckResult {
   rpcReachable: boolean;
   latencyMs: number;

@@ -168,6 +168,19 @@ export {
   isIPFSConfigError,
   ShutdownInProgressError,
   isShutdownInProgressError,
+  // New: AMM Calculator
+  InsufficientLiquidityError,
+  isInsufficientLiquidityError,
+  // New: Timeout Escalation
+  PaymentEscalationAbortError,
+  isPaymentEscalationAbortError,
+  // New: Recipient Deduplicator
+  DuplicateRecipientError,
+  isDuplicateRecipientError,
+  // New: Horizon Error Classifier
+  ClassifiedHorizonError,
+  isClassifiedHorizonError,
+  HorizonErrorClassification,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -261,6 +274,16 @@ export { connectWallet, getPublicKey, signTransaction } from "./wallet.js";
 
 export { checkRPCHealth } from "./health.js";
 export { FallbackChain, FallbackExhaustedError } from "./fallbackChain.js";
+
+// AMM Calculator
+export { estimateSwapOutput, calculatePoolShare } from "./ammCalculator.js";
+
+// Recipient Deduplicator
+export { deduplicateRecipients } from "./validators/recipientDeduplicator.js";
+export type { DedupMode } from "./validators/recipientDeduplicator.js";
+
+// Horizon Error Classifier
+export { classifyHorizonError, isHorizonErrorRetryable } from "./horizonErrorClassifier.js";
 export { groupInvoicesByPattern } from "./smartGrouping.js";
 export type { InvoiceCluster } from "./smartGrouping.js";
 
@@ -346,8 +369,8 @@ export type {
 export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
-export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
-export type { TimeoutConfig } from "./timeout.js";
+export { TimeoutManager, withTimeout, EscalationManager, RequestTimeoutError as TimeoutError } from "./timeout.js";
+export type { TimeoutConfig, EscalationEvent, EscalationCallback } from "./timeout.js";
 
 // Trace IDs (Issue #2)
 export { TraceIdManager, globalTraceIdManager } from "./traceId.js";
@@ -406,6 +429,12 @@ export type {
   Subscription,
   SubscriptionOptions,
   SubscriptionLifecycleEvent,
+  // New: AMM Calculator
+  PoolSwapEstimate,
+  PoolShareResult,
+  // New: Timeout Escalation
+  EscalationStep,
+  TimeoutPolicy,
 } from "./types.js";
 
 export { analyzeCohorts } from "./cohortAnalyzer.js";
