@@ -845,3 +845,64 @@ export type { WaterfallConfig, WaterfallTier, WaterfallPlan, WaterfallStep } fro
 
 export { OptimisticCache } from "./cache/OptimisticCache.js";
 export type { RollbackEvent, OptimisticEntry } from "./cache/OptimisticCache.js";
+
+// ---------------------------------------------------------------------------
+// #476 — OperationBuilder: fluent multi-op envelope builder with dry-run
+// ---------------------------------------------------------------------------
+
+export { OperationBuilder } from "./builder/OperationBuilder.js";
+export type {
+  PaymentOptions as OperationBuilderPaymentOptions,
+  InvokeHostFnOptions,
+  BumpSequenceOptions,
+  TimeboundsOptions,
+  DryRunResult,
+  SubmitOptions,
+  OperationBuilderConfig,
+} from "./builder/OperationBuilder.js";
+export {
+  EnvelopeLimitError,
+  isEnvelopeLimitError,
+  DryRunFailedError,
+  isDryRunFailedError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #477 — AccountSignerWeightCalculator: multi-sig pre-flight weight check
+// ---------------------------------------------------------------------------
+
+export { AccountSignerWeightCalculator } from "./accounts/AccountSignerWeightCalculator.js";
+export type {
+  ThresholdLevel,
+  SignerWeightResult,
+} from "./accounts/AccountSignerWeightCalculator.js";
+export {
+  InsufficientSignerWeightError,
+  isInsufficientSignerWeightError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #478 — PaymentDeduplicationFingerprinter: content-based payment dedup
+// ---------------------------------------------------------------------------
+
+export { PaymentDeduplicationFingerprinter } from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export type {
+  DeduplicationPayment,
+  CheckResult as DeduplicationCheckResult,
+} from "./deduplication/PaymentDeduplicationFingerprinter.js";
+export {
+  DuplicatePaymentError,
+  isDuplicatePaymentError,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #479 — LazyInitializer + SplitClient: on-demand RPC connection
+// ---------------------------------------------------------------------------
+
+export { LazyInitializer } from "./client/LazyInitializer.js";
+export { SplitClient } from "./client/SplitClient.js";
+export type { SplitClientConfig } from "./client/SplitClient.js";
+export {
+  RpcConnectionError,
+  isRpcConnectionError,
+} from "./errors.js";
