@@ -1321,3 +1321,79 @@ export interface SignedBridgeProof {
   /** Source-chain address of the signer. */
   signerAddress: string;
 }
+
+// ---------------------------------------------------------------------------
+// Split payment & DEX pathfinding types
+// ---------------------------------------------------------------------------
+
+/** Configuration for a split payment specifying the source/payment asset. */
+export interface SplitConfig {
+  /** Asset the payer will use to fund the split payment (e.g. "native" or "USDC:G..."). */
+  paymentAsset: string;
+  /** Optional maximum slippage in basis points (1 bps = 0.01%). Default: 50 (0.5%). */
+  maxSlippageBps?: number;
+}
+
+/** Individual recipient share in a cross-asset split payment. */
+export interface RecipientShare {
+  /** Stellar address of the recipient. */
+  address: string;
+  /** Amount owed to this recipient in the asset's base units. */
+  amount: bigint;
+  /** Asset the recipient expects to receive (e.g. "USDC:G..."). */
+  receiveAsset: string;
+}
+
+// ---------------------------------------------------------------------------
+// Offer tracking types
+// ---------------------------------------------------------------------------
+
+/** The lifecycle status of a tracked DEX offer. */
+export type OfferStatus = "open" | "partially_filled" | "filled" | "cancelled" | "stale";
+
+/** A DEX offer tracked by the OfferTracker. */
+export interface OfferRecord {
+  /** Stellar offer ID (u64 from Horizon). */
+  offerId: string;
+  /** Stellar address of the account that owns the offer. */
+  account: string;
+  /** Asset being sold (e.g. "native" or "USDC:G..."). */
+  selling: string;
+  /** Asset being bought (e.g. "native" or "USDC:G..."). */
+  buying: string;
+  /** Amount of the selling asset still available on the order book. */
+  amount: string;
+  /** Offer price as a ratio string (e.g. "2.5"). */
+  price: string;
+  /** Current lifecycle status. */
+  status: OfferStatus;
+  /** Unix timestamp in milliseconds when the offer was created. */
+  createdAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Claimable balance lifecycle types
+// ---------------------------------------------------------------------------
+
+/** Status of a claimable balance in its lifecycle. */
+export type ClaimableBalanceStatus = "created" | "claimed" | "expired";
+
+/** A claimable balance record tracked through its lifecycle. */
+export interface ClaimableBalanceRecord {
+  /** Stellar claimable balance ID. */
+  balanceId: string;
+  /** Stellar address of the claimant. */
+  claimant: string;
+  /** Asset descriptor (e.g. "native" or "USDC:G..."). */
+  asset: string;
+  /** Amount in the asset's base unit. */
+  amount: string;
+  /** Current lifecycle status. */
+  status: ClaimableBalanceStatus;
+  /** Unix timestamp in milliseconds when the balance was created. */
+  createdAt: number;
+  /** Unix timestamp in milliseconds when the balance was claimed (or null). */
+  claimedAt: number | null;
+  /** Predicate expiry ledger, if applicable. */
+  predicateExpiryLedger?: number;
+}

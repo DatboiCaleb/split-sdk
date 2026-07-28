@@ -1456,6 +1456,126 @@ export class PassphraseMismatchError extends StellarSplitError {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sequence cache errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when the sequence cache fails to fetch an account from Horizon. */
+export class SequenceCacheError extends StellarSplitError {
+  readonly accountId: string;
+
+  constructor(message: string, accountId: string) {
+    super(message, "SEQUENCE_CACHE_ERROR", { accountId }, message);
+    this.name = "SequenceCacheError";
+    this.accountId = accountId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isSequenceCacheError(err: unknown): err is SequenceCacheError {
+  return err instanceof SequenceCacheError;
+}
+
+/** Thrown when a SEQUENCE_NUMBER_TOO_OLD error is detected at submission time. */
+export class SequenceNumberTooOldError extends StellarSplitError {
+  readonly accountId: string;
+  readonly cachedSequence: bigint;
+
+  constructor(accountId: string, cachedSequence: bigint) {
+    super(
+      `Sequence number too old for ${accountId} (cached: ${cachedSequence})`,
+      "SEQUENCE_NUMBER_TOO_OLD",
+      { accountId, cachedSequence: cachedSequence.toString() },
+    );
+    this.name = "SequenceNumberTooOldError";
+    this.accountId = accountId;
+    this.cachedSequence = cachedSequence;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isSequenceNumberTooOldError(err: unknown): err is SequenceNumberTooOldError {
+  return err instanceof SequenceNumberTooOldError;
+}
+
+// ---------------------------------------------------------------------------
+// Path router errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when no DEX path could be found between two assets. */
+export class PathNotFoundError extends StellarSplitError {
+  readonly sourceAsset: string;
+  readonly destAsset: string;
+  readonly amount: bigint;
+
+  constructor(sourceAsset: string, destAsset: string, amount: bigint) {
+    super(
+      `No DEX path found from ${sourceAsset} to ${destAsset} for amount ${amount}`,
+      "PATH_NOT_FOUND",
+      { sourceAsset, destAsset, amount: amount.toString() },
+    );
+    this.name = "PathNotFoundError";
+    this.sourceAsset = sourceAsset;
+    this.destAsset = destAsset;
+    this.amount = amount;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPathNotFoundError(err: unknown): err is PathNotFoundError {
+  return err instanceof PathNotFoundError;
+}
+
+/** Thrown when the path router encounters an unexpected error. */
+export class PathRouterError extends StellarSplitError {
+  constructor(message: string) {
+    super(message, "PATH_ROUTER_ERROR", undefined, message);
+    this.name = "PathRouterError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPathRouterError(err: unknown): err is PathRouterError {
+  return err instanceof PathRouterError;
+}
+
+// ---------------------------------------------------------------------------
+// Offer tracker errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when offer tracking or cancellation fails. */
+export class OfferTrackingError extends StellarSplitError {
+  constructor(message: string) {
+    super(message, "OFFER_TRACKING_ERROR", undefined, message);
+    this.name = "OfferTrackingError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isOfferTrackingError(err: unknown): err is OfferTrackingError {
+  return err instanceof OfferTrackingError;
+}
+
+// ---------------------------------------------------------------------------
+// Claimable balance lifecycle errors
+// ---------------------------------------------------------------------------
+
+/** Thrown when claimable balance lifecycle operations fail. */
+export class ClaimableBalanceLifecycleError extends StellarSplitError {
+  readonly balanceId: string;
+
+  constructor(message: string, balanceId: string) {
+    super(message, "CLAIMABLE_BALANCE_LIFECYCLE_ERROR", { balanceId }, message);
+    this.name = "ClaimableBalanceLifecycleError";
+    this.balanceId = balanceId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isClaimableBalanceLifecycleError(err: unknown): err is ClaimableBalanceLifecycleError {
+  return err instanceof ClaimableBalanceLifecycleError;
+}
+
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }
