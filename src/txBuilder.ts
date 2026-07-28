@@ -11,6 +11,8 @@ import {
 import type { StellarSplitClientConfig } from "./client.js";
 import { signTransaction } from "./wallet.js";
 import { SimulationFailedError, TransactionFailedError, TransactionNotConfirmedError } from "./errors.js";
+import { detectFeeSurge } from "./feeSurgeDetector.js";
+import type { FeeSurgeConfig } from "./feeSurgeDetector.js";
 
 /** Builder for composing multi-operation StellarSplit transactions. */
 export class StellarSplitTxBuilder {
@@ -19,6 +21,7 @@ export class StellarSplitTxBuilder {
   private readonly config: StellarSplitClientConfig;
   private readonly sourceAddress: string;
   private readonly operations: xdr.Operation[] = [];
+  private _surgeConfig?: FeeSurgeConfig;
 
   constructor(config: StellarSplitClientConfig, sourceAddress: string) {
     this.config = config;
@@ -26,6 +29,16 @@ export class StellarSplitTxBuilder {
     const rpcUrl = Array.isArray(config.rpcUrl) ? config.rpcUrl[0]! : config.rpcUrl;
     this.server = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
     this.contract = new Contract(config.contractId);
+  }
+
+  /**
+   * Enable surge-aware fee adjustment. When the network is congested the
+   * builder will apply an increased fee multiplier automatically before
+   * signing, keeping transactions from failing due to hard-coded fee values.
+   */
+  enableSurgeDetection(config?: FeeSurgeConfig): this {
+    this._surgeConfig = config ?? {};
+    return this;
   }
 
   addPay(invoiceId: string, amount: bigint | number | string): this {
@@ -102,8 +115,19 @@ export class StellarSplitTxBuilder {
   async submit(): Promise<{ txHash: string }> {
     const account = await this.server.getAccount(this.sourceAddress);
 
+    // Resolve the fee: use surge-adjusted fee when enabled, otherwise BASE_FEE.
+    let fee = BASE_FEE;
+    if (this._surgeConfig && this.config.horizonUrl) {
+      try {
+        const rec = await detectFeeSurge(this.config.horizonUrl, this._surgeConfig);
+        fee = rec.surgeActive ? String(rec.fee) : BASE_FEE;
+      } catch {
+        // Surge detection failed — fall back to BASE_FEE silently.
+      }
+    }
+
     const tb = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: this.config.networkPassphrase,
     });
 

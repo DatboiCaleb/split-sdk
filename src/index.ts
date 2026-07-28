@@ -743,6 +743,45 @@ export type {
   HistoricalInvoiceSample,
 } from "./forecast.js";
 
+// ---------------------------------------------------------------------------
+// Split ratio validator
+// ---------------------------------------------------------------------------
+
+export { validateSplitRatios, validateSplitRatiosOrThrow, ratiosToRecipients } from "./validators/splitRatioValidator.js";
+export type {
+  RecipientShare,
+  SplitConfig,
+  SplitRatioValidationResult,
+} from "./validators/splitRatioValidator.js";
+
+// ---------------------------------------------------------------------------
+// Trustline checker
+// ---------------------------------------------------------------------------
+
+export { checkTrustlines, checkSingleTrustline } from "./trustlineChecker.js";
+export type { TrustlineEntry, TrustlineCheckResult } from "./trustlineChecker.js";
+
+// ---------------------------------------------------------------------------
+// XDR parser
+// ---------------------------------------------------------------------------
+
+export { parseEnvelope } from "./xdrParser.js";
+export type {
+  ParsedEnvelope,
+  ParsedTransaction,
+  ParsedOperation,
+  ParsedMemo,
+  ParsedSignature,
+  ParsedTimeBounds,
+} from "./xdrParser.js";
+
+// ---------------------------------------------------------------------------
+// Fee surge detector
+// ---------------------------------------------------------------------------
+
+export { detectFeeSurge, clearFeeSurgeCache } from "./feeSurgeDetector.js";
+export type { FeeSurgeConfig, FeeRecommendation, CongestionLevel } from "./feeSurgeDetector.js";
+
 export {
   reconcileChannel,
   registerChannelStateFetcher,
