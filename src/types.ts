@@ -303,6 +303,10 @@ export interface CreateInvoiceParams {
 
 /** Generic hardware/software wallet adapter interface. */
 export interface WalletAdapter {
+  /** Unique wallet name (e.g., "Freighter", "LOBSTR", "xBull") */
+  name: string;
+  /** Connect to the wallet and return the Stellar public key */
+  connect(): Promise<string>;
   /** Return the Stellar public key (G... address) from the device. */
   getAddress(): Promise<string>;
   /**
@@ -313,6 +317,10 @@ export interface WalletAdapter {
    * @returns Signed transaction XDR.
    */
   signTransaction(xdr: string, network: string): Promise<string>;
+  /** Disconnect from the wallet */
+  disconnect(): void;
+  /** Register a handler for account change events. Returns an unsubscribe function. */
+  onAccountChange(handler: (address: string) => void): () => void;
 }
 
 /** Parameters for paying toward an invoice. */
