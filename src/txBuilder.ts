@@ -7,6 +7,8 @@ import {
   xdr,
   Account,
   Transaction,
+  Asset,
+  Operation,
 } from "@stellar/stellar-sdk";
 import type { StellarSplitClientConfig } from "./client.js";
 import { signTransaction } from "./wallet.js";
@@ -73,13 +75,69 @@ export class StellarSplitTxBuilder {
   }
 
   /**
+   * Add a PathPaymentStrictSend operation for cross-asset DEX-routed payments.
+   */
+  addPathPaymentStrictSend(
+    sendAsset: Asset,
+    sendAmount: string,
+    destination: string,
+    destAsset: Asset,
+    destMin: string,
+    path: Asset[],
+  ): this {
+    const op = Operation.pathPaymentStrictSend({
+      sendAsset,
+      sendAmount,
+      destination,
+      destAsset,
+      destMin,
+      path,
+    });
+    this.operations.push(op);
+    return this;
+  }
+
+  /**
+   * Add a PathPaymentStrictReceive operation for cross-asset DEX-routed payments.
+   */
+  addPathPaymentStrictReceive(
+    sendAsset: Asset,
+    sendMax: string,
+    destination: string,
+    destAsset: Asset,
+    destAmount: string,
+    path: Asset[],
+  ): this {
+    const op = Operation.pathPaymentStrictReceive({
+      sendAsset,
+      sendMax,
+      destination,
+      destAsset,
+      destAmount,
+      path,
+    });
+    this.operations.push(op);
+    return this;
+  }
+
+  /**
    * Build an unsigned Transaction using a fallback source account (sequence 0).
-   * This is synchronous and suitable for offline signing or inspection.
+   * Use {@link buildWithSequence} when a {@link SequenceCache} is available to
+   * avoid extra Horizon round-trips.
    */
   build(): Transaction {
+    return this.buildWithSequence("0");
+  }
+
+  /**
+   * Build an unsigned Transaction using the provided sequence number string.
+   * Integrates with {@link SequenceCache} — callers should pass the value
+   * returned by `SequenceCache.getSequence()` converted to a string.
+   */
+  buildWithSequence(sequence: string): Transaction {
     const sourceAccount = ({
       accountId: () => this.sourceAddress,
-      sequenceNumber: () => "0",
+      sequenceNumber: () => sequence,
       incrementSequenceNumber: () => {},
     } as unknown) as Account;
 
@@ -98,9 +156,43 @@ export class StellarSplitTxBuilder {
 
   /**
    * Sign and submit the composed transaction. Returns transaction hash when confirmed.
+   * Always fetches the current account sequence from the RPC.
    */
   async submit(): Promise<{ txHash: string }> {
-    const account = await this.server.getAccount(this.sourceAddress);
+    return this._submitInternal();
+  }
+
+  /**
+   * Sign and submit using a pre-fetched sequence number (from {@link SequenceCache}).
+   * When `sequence` is provided as a bigint, the Horizon `loadAccount` call is skipped,
+   * saving a round-trip. The sequence number is converted to a string for the
+   * TransactionBuilder.
+   *
+   * @param sequence - Optional pre-fetched sequence number as a bigint. When omitted,
+   *                   falls back to `server.getAccount()`.
+   */
+  async submitWithSequence(sequence?: bigint): Promise<{ txHash: string }> {
+    return this._submitInternal(sequence);
+  }
+
+  /**
+   * Internal submission shared by {@link submit} and {@link submitWithSequence}.
+   */
+  private async _submitInternal(sequence?: bigint): Promise<{ txHash: string }> {
+    let account: Account;
+
+    if (sequence !== undefined) {
+      // Build account object from cached sequence, skipping the RPC call
+      account = ({
+        accountId: () => this.sourceAddress,
+        sequenceNumber: () => sequence.toString(),
+        incrementSequenceNumber: () => {},
+      } as unknown) as Account;
+    } else {
+      // Fallback: fetch from RPC
+      const fetched = await this.server.getAccount(this.sourceAddress);
+      account = new Account(fetched.accountId(), fetched.sequenceNumber());
+    }
 
     const tb = new TransactionBuilder(account, {
       fee: BASE_FEE,

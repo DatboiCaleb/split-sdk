@@ -590,8 +590,6 @@ export function verifyCompletionProof(proof: CompletionProof): {
   }
   return { valid: true };
 }
-export class StellarSplitClient extends EventEmitter {
-
 export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   private _mainServer!: SorobanRpc.Server;
   private _standby: WarmStandby | null = null;
