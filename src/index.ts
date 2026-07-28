@@ -968,3 +968,21 @@ export {
   RpcConnectionError,
   isRpcConnectionError,
 } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #483 — ContractStorageExporter: contract storage entry snapshot exporter
+// ---------------------------------------------------------------------------
+
+export { ContractStorageExporter, scValToJson } from "./diagnostics/ContractStorageExporter.js";
+export type {
+  ContractStorageSnapshot,
+  StorageEntry,
+  StorageDiff,
+  StorageModification,
+  ScValJson,
+  ScValJsonPrimitive,
+  ScValJsonVec,
+  ScValJsonMap,
+  ScValPrimitive,
+  ContractStorageExporterOptions,
+} from "./diagnostics/ContractStorageExporter.js";
