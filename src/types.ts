@@ -1383,3 +1383,140 @@ export interface SignedBridgeProof {
   /** Source-chain address of the signer. */
   signerAddress: string;
 }
+
+// ---------------------------------------------------------------------------
+// Memo Builder Types
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for the split memo builder, defining the version of the split
+ * protocol used when encoding memo data.
+ */
+export interface SplitConfig {
+  /** Protocol version number for the split memo format. */
+  version: number;
+}
+
+/**
+ * Parsed representation of a canonical StellarSplit memo.
+ */
+export interface ParsedMemo {
+  /** The invoice ID extracted from the memo. */
+  invoiceId: string;
+  /** The split protocol version encoded in the memo. */
+  version: number;
+  /** The payer's Stellar address suffix (last 8 chars) used for identification. */
+  payerId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Asset Issuer Verification Types
+// ---------------------------------------------------------------------------
+
+/** Result of verifying an asset issuer's on-chain identity and metadata. */
+export interface IssuerVerificationResult {
+  /** Whether the issuer passed all verification checks. */
+  verified: boolean;
+  /** The issuer account ID that was checked. */
+  issuerId: string;
+  /** Whether the issuer account exists on the network. */
+  accountExists: boolean;
+  /** The home domain claimed by the issuer account, if any. */
+  homeDomain: string | null;
+  /** Whether a valid stellar.toml was found at the home domain. */
+  tomlFound: boolean;
+  /** Whether the asset code was listed in the CURRENCIES section of the toml. */
+  assetInToml: boolean;
+  /** The asset code that was verified against the toml. */
+  assetCode: string | null;
+  /** List of human-readable failure reasons when verified is false. */
+  errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// SEP-24 Interactive Transfer Types
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status of a SEP-24 interactive transfer. */
+export type Sep24Status =
+  | "incomplete"
+  | "pending_user_transfer_start"
+  | "pending_anchor"
+  | "pending_stellar"
+  | "pending_external"
+  | "completed"
+  | "error"
+  | "refunded";
+
+/** A record tracking a single SEP-24 interactive deposit or withdrawal. */
+export interface Sep24TransactionRecord {
+  /** SEP-24 transaction ID returned by the anchor. */
+  id: string;
+  /** Type of transfer: deposit or withdrawal. */
+  kind: "deposit" | "withdrawal";
+  /** Current lifecycle status. */
+  status: Sep24Status;
+  /** Amount requested in the transfer (in stroops). */
+  amount: bigint;
+  /** Asset code (e.g., "USDC"). */
+  assetCode: string;
+  /** The anchor's Stellar address for the asset issuer. */
+  assetIssuer: string;
+  /** The interactive IFRAME URL the user should visit. */
+  interactiveUrl: string | null;
+  /** Stellar transaction ID once the transfer completes on-chain. */
+  stellarTxId: string | null;
+  /** Unix timestamp when the transaction was initiated. */
+  startedAt: number;
+  /** Unix timestamp of the last status update. */
+  updatedAt: number;
+  /** Anchor service endpoint used for this transfer. */
+  anchorUrl: string;
+  /** Optional KYC/verification URL if required by the anchor. */
+  kycUrl: string | null;
+  /** Optional human-readable error message when status is "error". */
+  errorMessage: string | null;
+}
+
+/** Event emitted when a SEP-24 transaction status changes. */
+export interface Sep24StatusChangedEvent {
+  /** The transaction record with updated status. */
+  transaction: Sep24TransactionRecord;
+  /** The previous status before this change. */
+  previousStatus: Sep24Status;
+}
+
+// ---------------------------------------------------------------------------
+// Horizon Paginator Types
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal interface for a Horizon collection page that supports
+ * cursor-based pagination via a .next() method.
+ */
+export interface CollectionPage<T> {
+  /** Records in the current page. */
+  records: T[];
+  /** Fetch the next page, or return null when exhausted. */
+  next(): Promise<CollectionPage<T> | null>;
+}
+
+/** Configuration options for the horizon paginator. */
+export interface HorizonPaginatorOptions {
+  /** Maximum number of records to yield across all pages. Default: unlimited. */
+  maxRecords?: number;
+  /** Optional cursor store for persisting the last-seen paging token. */
+  cursorStore?: CursorStore;
+  /** Optional namespace for cursor storage keys (default: "horizon"). */
+  cursorNamespace?: string;
+}
+
+/** Persistence interface for cursor tracking. */
+export interface CursorStore {
+  /** Save a cursor value under a named key. */
+  save(key: string, cursor: string): Promise<void>;
+  /** Load a previously saved cursor value, or null if not found. */
+  load(key: string): Promise<string | null>;
+  /** Delete a saved cursor. */
+  delete(key: string): Promise<void>;
+}
