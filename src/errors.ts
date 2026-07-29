@@ -1459,3 +1459,123 @@ export class PassphraseMismatchError extends StellarSplitError {
 export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
   return err instanceof IPFSConfigError;
 }
+
+// ---------------------------------------------------------------------------
+// AMM Calculator errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when swap input exceeds a configurable ratio of pool reserves,
+ * or when pool reserves are zero / insufficient.
+ */
+export class InsufficientLiquidityError extends StellarSplitError {
+  readonly reserveAmount: string;
+  readonly inputAmount: string;
+
+  constructor(message: string, reserveAmount: string, inputAmount: string) {
+    super(message, "INSUFFICIENT_LIQUIDITY", { reserveAmount, inputAmount }, message);
+    this.name = "InsufficientLiquidityError";
+    this.reserveAmount = reserveAmount;
+    this.inputAmount = inputAmount;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInsufficientLiquidityError(err: unknown): err is InsufficientLiquidityError {
+  return err instanceof InsufficientLiquidityError;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout Escalation errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the `abort` escalation step fires, cancelling the payment.
+ */
+export class PaymentEscalationAbortError extends StellarSplitError {
+  readonly invoiceId: string;
+  readonly remainingMs: number;
+
+  constructor(invoiceId: string, remainingMs: number) {
+    super(
+      `Payment escalation aborted for invoice ${invoiceId} with ${remainingMs}ms remaining`,
+      "PAYMENT_ESCALATION_ABORT",
+      { invoiceId, remainingMs }
+    );
+    this.name = "PaymentEscalationAbortError";
+    this.invoiceId = invoiceId;
+    this.remainingMs = remainingMs;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPaymentEscalationAbortError(err: unknown): err is PaymentEscalationAbortError {
+  return err instanceof PaymentEscalationAbortError;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient Deduplicator errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when duplicate recipient account IDs are detected in `reject` mode.
+ */
+export class DuplicateRecipientError extends StellarSplitError {
+  readonly duplicateAddresses: string[];
+
+  constructor(duplicateAddresses: string[]) {
+    super(
+      `Duplicate recipient addresses detected: ${duplicateAddresses.join(", ")}`,
+      "DUPLICATE_RECIPIENT",
+      { duplicateAddresses }
+    );
+    this.name = "DuplicateRecipientError";
+    this.duplicateAddresses = duplicateAddresses;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isDuplicateRecipientError(err: unknown): err is DuplicateRecipientError {
+  return err instanceof DuplicateRecipientError;
+}
+
+// ---------------------------------------------------------------------------
+// Horizon Error Classification Types
+// ---------------------------------------------------------------------------
+
+/** Structured classification of a Horizon transaction/operation result code. */
+export interface HorizonErrorClassification {
+  /** The primary result code string. */
+  code: string;
+  /** Whether the error is safe to retry. */
+  isRetryable: boolean;
+  /** Severity level of the error. */
+  severity: "low" | "medium" | "high" | "critical" | "unknown";
+  /** Human-readable description of what went wrong. */
+  description: string;
+  /** Recommended action for the caller to take. */
+  suggestedAction: string;
+  /** The specific operation result code, if available. */
+  operationCode?: string;
+}
+
+/**
+ * Wraps a classified Horizon error with the structured classification.
+ */
+export class ClassifiedHorizonError extends StellarSplitError {
+  readonly classification: HorizonErrorClassification;
+
+  constructor(
+    message: string,
+    classification: HorizonErrorClassification
+  ) {
+    super(message, "CLASSIFIED_HORIZON_ERROR", { classification });
+    this.name = "ClassifiedHorizonError";
+    this.classification = classification;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isClassifiedHorizonError(err: unknown): err is ClassifiedHorizonError {
+  return err instanceof ClassifiedHorizonError;
+}
