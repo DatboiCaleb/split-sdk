@@ -1461,77 +1461,121 @@ export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
 }
 
 // ---------------------------------------------------------------------------
-// Sponsorship Reserve Verifier Error
+// AMM Calculator errors
 // ---------------------------------------------------------------------------
 
 /**
- * Thrown when the sponsoring account does not have enough XLM reserve
- * to cover the new ledger entries it will sponsor.
+ * Thrown when swap input exceeds a configurable ratio of pool reserves,
+ * or when pool reserves are zero / insufficient.
  */
-export class InsufficientSponsorReserveError extends StellarSplitError {
-  readonly sponsorAddress: string;
-  readonly availableStroops: bigint;
-  readonly requiredStroops: bigint;
-  readonly newEntries: number;
+export class InsufficientLiquidityError extends StellarSplitError {
+  readonly reserveAmount: string;
+  readonly inputAmount: string;
+
+  constructor(message: string, reserveAmount: string, inputAmount: string) {
+    super(message, "INSUFFICIENT_LIQUIDITY", { reserveAmount, inputAmount }, message);
+    this.name = "InsufficientLiquidityError";
+    this.reserveAmount = reserveAmount;
+    this.inputAmount = inputAmount;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInsufficientLiquidityError(err: unknown): err is InsufficientLiquidityError {
+  return err instanceof InsufficientLiquidityError;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout Escalation errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the `abort` escalation step fires, cancelling the payment.
+ */
+export class PaymentEscalationAbortError extends StellarSplitError {
+  readonly invoiceId: string;
+  readonly remainingMs: number;
+
+  constructor(invoiceId: string, remainingMs: number) {
+    super(
+      `Payment escalation aborted for invoice ${invoiceId} with ${remainingMs}ms remaining`,
+      "PAYMENT_ESCALATION_ABORT",
+      { invoiceId, remainingMs }
+    );
+    this.name = "PaymentEscalationAbortError";
+    this.invoiceId = invoiceId;
+    this.remainingMs = remainingMs;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isPaymentEscalationAbortError(err: unknown): err is PaymentEscalationAbortError {
+  return err instanceof PaymentEscalationAbortError;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient Deduplicator errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when duplicate recipient account IDs are detected in `reject` mode.
+ */
+export class DuplicateRecipientError extends StellarSplitError {
+  readonly duplicateAddresses: string[];
+
+  constructor(duplicateAddresses: string[]) {
+    super(
+      `Duplicate recipient addresses detected: ${duplicateAddresses.join(", ")}`,
+      "DUPLICATE_RECIPIENT",
+      { duplicateAddresses }
+    );
+    this.name = "DuplicateRecipientError";
+    this.duplicateAddresses = duplicateAddresses;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isDuplicateRecipientError(err: unknown): err is DuplicateRecipientError {
+  return err instanceof DuplicateRecipientError;
+}
+
+// ---------------------------------------------------------------------------
+// Horizon Error Classification Types
+// ---------------------------------------------------------------------------
+
+/** Structured classification of a Horizon transaction/operation result code. */
+export interface HorizonErrorClassification {
+  /** The primary result code string. */
+  code: string;
+  /** Whether the error is safe to retry. */
+  isRetryable: boolean;
+  /** Severity level of the error. */
+  severity: "low" | "medium" | "high" | "critical" | "unknown";
+  /** Human-readable description of what went wrong. */
+  description: string;
+  /** Recommended action for the caller to take. */
+  suggestedAction: string;
+  /** The specific operation result code, if available. */
+  operationCode?: string;
+}
+
+/**
+ * Wraps a classified Horizon error with the structured classification.
+ */
+export class ClassifiedHorizonError extends StellarSplitError {
+  readonly classification: HorizonErrorClassification;
 
   constructor(
-    sponsorAddress: string,
-    available: bigint,
-    required: bigint,
-    newEntries: number,
-    raw?: string,
+    message: string,
+    classification: HorizonErrorClassification
   ) {
-    super(
-      `Sponsor ${sponsorAddress} has insufficient XLM reserve: ` +
-        `${available} stroops available, ${required} stroops required ` +
-        `(${newEntries} new sponsored entries)`,
-      "INSUFFICIENT_SPONSOR_RESERVE",
-      { sponsorAddress, available: available.toString(), required: required.toString(), newEntries },
-      raw,
-    );
-    this.name = "InsufficientSponsorReserveError";
-    this.sponsorAddress = sponsorAddress;
-    this.availableStroops = available;
-    this.requiredStroops = required;
-    this.newEntries = newEntries;
+    super(message, "CLASSIFIED_HORIZON_ERROR", { classification });
+    this.name = "ClassifiedHorizonError";
+    this.classification = classification;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-export function isInsufficientSponsorReserveError(
-  err: unknown,
-): err is InsufficientSponsorReserveError {
-  return err instanceof InsufficientSponsorReserveError;
-}
-
-// ---------------------------------------------------------------------------
-// Payment Expired Error (Invoice Expiry Guard)
-// ---------------------------------------------------------------------------
-
-/**
- * Thrown when a payment is submitted after the invoice has expired.
- */
-export class PaymentExpiredError extends StellarSplitError {
-  readonly invoiceId: string;
-  readonly expiresAt: number;
-  readonly now: number;
-
-  constructor(invoiceId: string, expiresAt: number, raw?: string) {
-    const now = Math.floor(Date.now() / 1000);
-    super(
-      `Payment rejected: invoice ${invoiceId} expired at ${expiresAt} (now: ${now})`,
-      "PAYMENT_EXPIRED",
-      { invoiceId, expiresAt, now },
-      raw,
-    );
-    this.name = "PaymentExpiredError";
-    this.invoiceId = invoiceId;
-    this.expiresAt = expiresAt;
-    this.now = now;
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
-
-export function isPaymentExpiredError(err: unknown): err is PaymentExpiredError {
-  return err instanceof PaymentExpiredError;
+export function isClassifiedHorizonError(err: unknown): err is ClassifiedHorizonError {
+  return err instanceof ClassifiedHorizonError;
 }
