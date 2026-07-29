@@ -195,7 +195,12 @@ import {
   StellarSplitError,
   AdminOperationError,
   PassphraseMismatchError,
+  InvoiceIntegrityError,
+  InvalidTransactionTypeError,
 } from "./errors.js";
+import { hashInvoice, verifyInvoiceHash } from "./invoiceHashVerifier.js";
+import { buildFeeBump } from "./feeBumpBuilder.js";
+import type { FeeBumpConfig } from "./feeBumpBuilder.js";
 import { replayEvents } from "./events.js";
 import { subscribeToInvoice as _subscribeToInvoice } from "./stream.js";
 import { subscribeToInvoice as _subscribeToInvoiceSSE } from "./sse.js";
@@ -227,6 +232,12 @@ import type { RequestPriority } from "./priorityQueue.js";
 import { IdempotencyManager } from "./idempotency.js";
 import type { IdempotencyConfig } from "./idempotency.js";
 import { validateInvoicePayload } from "./payloadGuard.js";
+import { validateSplitRatiosOrThrow } from "./validators/splitRatioValidator.js";
+import type { SplitConfig } from "./types.js";
+import { checkTrustlines } from "./trustlineChecker.js";
+import type { TrustlineCheckResult } from "./trustlineChecker.js";
+import { parseEnvelope } from "./xdrParser.js";
+import type { ParsedEnvelope } from "./xdrParser.js";
 import type { PayloadGuardConfig } from "./payloadGuard.js";
 import { HorizonFallbackReader } from "./horizonFallback.js";
 import type {
@@ -466,17 +477,16 @@ export interface StellarSplitClientConfig {
   /** Optional tuning for the {@link RpcLoadBalancer} created from `rpcEndpoints`. */
   rpcLoadBalancer?: RpcLoadBalancerOptions;
   /**
-   * Optional OpenTelemetry instrumentation. When `enabled`, every public
-   * SplitClient method is wrapped in a span (with `stellar.network`,
-   * `invoice.id`, `rpc.url`, `rpc.duration_ms`, and `tx.hash` attributes
-   * where applicable) and three metrics are recorded:
-   * `split_sdk.rpc_call.count`, `split_sdk.rpc_call.duration`, and
-   * `split_sdk.tx.error.count`. Fully opt-in and zero-overhead when
-   * omitted/disabled -- `@opentelemetry/api` is never required unless this
-   * is turned on. Named `otel` (not `telemetry`) to avoid colliding with
-   * the pre-existing anonymous-usage `telemetry` option above.
+   * Optional fee surge detector configuration for surge-aware fee adjustment.
+   * When enabled, fees are adjusted dynamically during network congestion
+   * based on live Horizon fee statistics.
    */
-  otel?: TelemetryOptions;
+  feeSurgeConfig?: import("./feeSurgeDetector.js").FeeSurgeConfig;
+  /**
+   * When true, enables debug helpers such as {@link StellarSplitClient.parseXdrEnvelope}
+   * for inspecting in-flight transaction envelopes. Defaults to false.
+   */
+  debug?: boolean;
 }
 
 /** Network configuration. */
@@ -1717,6 +1727,27 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
   }
 
   // ---------------------------------------------------------------------------
+  // Debug helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Decode a base64-encoded Stellar transaction envelope XDR into a structured,
+   * human-readable object. Useful for debugging, audit logging, and UI display.
+   *
+   * Only functional when {@link StellarSplitClientConfig.debug} is true;
+   * otherwise returns a placeholder indicating debug mode is off.
+   *
+   * @param xdrBase64 - Base64-encoded transaction envelope XDR.
+   * @returns A parsed envelope, or a notice when debug mode is disabled.
+   */
+  parseXdrEnvelope(xdrBase64: string): ParsedEnvelope | { error: string } {
+    if (!this.config.debug) {
+      return { error: "Debug mode is disabled. Set config.debug = true to enable XDR parsing." };
+    }
+    return parseEnvelope(xdrBase64);
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
@@ -1741,6 +1772,21 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
         try {
           if (this.config.payloadGuard) {
             validateInvoicePayload(params, this.config.payloadGuard);
+          }
+
+          // Pre-submission split ratio validation: catch malformed ratio arrays
+          // early (ratio-sum violations, negative shares, duplicates, zeros).
+          if (params.recipients.length > 1) {
+            const total = params.recipients.reduce((s, r) => s + r.amount, 0n);
+            if (total > 0n) {
+              const splitConfig: SplitConfig = {
+                shares: params.recipients.map((r) => ({
+                  address: r.address,
+                  share: Number(r.amount) / Number(total),
+                })),
+              };
+              validateSplitRatiosOrThrow(splitConfig);
+            }
           }
 
           const gate = await this.checkNftGate(params.creator);
@@ -2006,7 +2052,18 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
     donateOnFailure?: boolean;
     waterfallPlan?: WaterfallPlan;
     allowPartial?: boolean;
+    expectedContentHash?: string;
   }): Promise<TxResult> {
+    // Verify invoice content hash if provided (integrity check)
+    if (params.expectedContentHash) {
+      const invoice = await this.getInvoice(params.invoiceId);
+      const valid = await verifyInvoiceHash(invoice, params.expectedContentHash);
+      if (!valid) {
+        const computed = await hashInvoice(invoice);
+        throw new InvoiceIntegrityError(params.invoiceId, params.expectedContentHash, computed);
+      }
+    }
+
     if (!params.waterfallPlan) {
       return this.pay({
         payer: params.payer,
@@ -3350,7 +3407,35 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
       }
     }
 
-    return computePaymentValidation(invoice, amount, balance);
+    const result = computePaymentValidation(invoice, amount, balance);
+
+    // Add trustline-check results for non-XLM assets when the config has a
+    // horizon URL set.
+    if (this.config.horizonUrl && invoice.token !== "native") {
+      try {
+        const { Horizon } = await import("@stellar/stellar-sdk");
+        const horizon = new Horizon.Server(this.config.horizonUrl);
+        const recipients = invoice.recipients.map((r) => r.address);
+        const trustResult = await checkTrustlines(
+          horizon,
+          recipients,
+          invoice.token,
+        );
+        if (!trustResult.allReady) {
+          const missing = trustResult.entries.filter((e) => !e.hasTrustline);
+          for (const m of missing) {
+            result.errors.push(
+              `Recipient ${m.address} has no trustline for token ${invoice.token}. Establish a trustline before releasing.`,
+            );
+          }
+          result.valid = false;
+        }
+      } catch {
+        // Trustline check failed — don't block payment, just skip.
+      }
+    }
+
+    return result;
   }
 
   private async _getPayerAddress(): Promise<string | null> {
@@ -6331,6 +6416,89 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
       this._adapter = null;
       this.emit("wallet:disconnected", { walletName });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Invoice Hash Verification
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verify that an invoice's content hash matches the expected hash,
+   * detecting tampering between creation and payment.
+   *
+   * @param invoice - The invoice to verify.
+   * @param expectedHash - Previously computed content hash.
+   * @returns `true` when hashes match.
+   * @throws InvoiceIntegrityError when hashes diverge.
+   */
+  async verifyInvoice(invoice: Invoice, expectedHash: string): Promise<boolean> {
+    const valid = await verifyInvoiceHash(invoice, expectedHash);
+    if (!valid) {
+      const computed = await hashInvoice(invoice);
+      throw new InvoiceIntegrityError(invoice.id, expectedHash, computed);
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fee Bump Submission
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build and submit a fee bump transaction wrapping an inner transaction
+   * signed by a recipient who cannot pay their own fee.
+   *
+   * @param innerTxXdr - Base-64 XDR of the inner signed transaction.
+   * @param feeSource  - Stellar address of the account paying the fee.
+   * @param baseFee    - Base fee in stroops.
+   * @param config     - Optional surge multiplier config.
+   * @returns The fee bump transaction hash.
+   */
+  async submitWithFeeBump(
+    innerTxXdr: string,
+    feeSource: string,
+    baseFee?: string,
+    config?: FeeBumpConfig,
+  ): Promise<TxResult> {
+    const innerTx = TransactionBuilder.fromXDR(
+      innerTxXdr,
+      this.config.networkPassphrase,
+    ) as Transaction;
+
+    const effectiveBaseFee = baseFee ?? BASE_FEE;
+    const feeBumpTx = buildFeeBump(innerTx, feeSource, effectiveBaseFee, this.config.networkPassphrase, config);
+
+    const signedXdr = await (this._adapter
+      ? this._adapter.signTransaction(feeBumpTx.toXDR(), this.config.networkPassphrase)
+      : signTransaction(feeBumpTx.toXDR(), this.config.networkPassphrase));
+
+    const sendResult = await this.server.sendTransaction(
+      TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase),
+    );
+
+    if (sendResult.status === "ERROR") {
+      throw new TransactionFailedError(
+        `Fee bump transaction failed: ${JSON.stringify(sendResult.errorResult)}`,
+      );
+    }
+
+    const txHash = sendResult.hash;
+    let getResult = await this.server.getTransaction(txHash);
+    let attempts = 0;
+    while (
+      getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+      attempts < 20
+    ) {
+      await new Promise((r) => setTimeout(r, 1500));
+      getResult = await this.server.getTransaction(txHash);
+      attempts++;
+    }
+
+    if (getResult.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      throw new TransactionNotConfirmedError(String(getResult.status));
+    }
+
+    return { txHash };
   }
 }
 

@@ -179,6 +179,19 @@ export {
   isIPFSConfigError,
   ShutdownInProgressError,
   isShutdownInProgressError,
+  // New: AMM Calculator
+  InsufficientLiquidityError,
+  isInsufficientLiquidityError,
+  // New: Timeout Escalation
+  PaymentEscalationAbortError,
+  isPaymentEscalationAbortError,
+  // New: Recipient Deduplicator
+  DuplicateRecipientError,
+  isDuplicateRecipientError,
+  // New: Horizon Error Classifier
+  ClassifiedHorizonError,
+  isClassifiedHorizonError,
+  HorizonErrorClassification,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -272,6 +285,16 @@ export { connectWallet, getPublicKey, signTransaction } from "./wallet.js";
 
 export { checkRPCHealth } from "./health.js";
 export { FallbackChain, FallbackExhaustedError } from "./fallbackChain.js";
+
+// AMM Calculator
+export { estimateSwapOutput, calculatePoolShare } from "./ammCalculator.js";
+
+// Recipient Deduplicator
+export { deduplicateRecipients } from "./validators/recipientDeduplicator.js";
+export type { DedupMode } from "./validators/recipientDeduplicator.js";
+
+// Horizon Error Classifier
+export { classifyHorizonError, isHorizonErrorRetryable } from "./horizonErrorClassifier.js";
 export { groupInvoicesByPattern } from "./smartGrouping.js";
 export type { InvoiceCluster } from "./smartGrouping.js";
 
@@ -353,12 +376,16 @@ export type {
   AdminFreezeResult,
   AdminUnfreezeResult,
   TransitionRecord,
-  SplitConfig,
-  RecipientShare,
-  OfferRecord,
-  OfferStatus,
-  ClaimableBalanceRecord,
-  ClaimableBalanceStatus,
+  SponsorshipConfig,
+  SponsorReserveCheckResult,
+  InvoiceRecord,
+  XDRType,
+  DecodedXDR,
+  DecodedTransactionEnvelope,
+  DecodedTransactionResult,
+  DecodedTransactionMeta,
+  DecodedLedgerEntry,
+  DecodedOperation,
 } from "./types.js";
 export { InvalidTransitionError } from "./types.js";
 
@@ -372,8 +399,8 @@ export type {
 export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
-export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
-export type { TimeoutConfig } from "./timeout.js";
+export { TimeoutManager, withTimeout, EscalationManager, RequestTimeoutError as TimeoutError } from "./timeout.js";
+export type { TimeoutConfig, EscalationEvent, EscalationCallback } from "./timeout.js";
 
 // Trace IDs (Issue #2)
 export { TraceIdManager, globalTraceIdManager } from "./traceId.js";
@@ -386,10 +413,34 @@ export type { RpcClient } from "./rpcClient.js";
 export { negotiateVersion, SDK_CONTRACT_VERSION } from "./version.js";
 export type { VersionInfo } from "./types.js";
 
-export { checkPayerReadiness } from "./preflightChecker.js";
-export type { PayerReadinessResult, PayerReadinessReason } from "./preflightChecker.js";
+export { checkPayerReadiness, checkInvoiceExpiry, checkSponsorReserve } from "./preflightChecker.js";
+export type { PayerReadinessResult, PayerReadinessReason, InvoiceExpiryResult, InvoiceExpiryReason, SponsorReserveCheck } from "./preflightChecker.js";
 
 export { getSuggestion } from "./errorSuggestions.js";
+
+// ---------------------------------------------------------------------------
+// XDR Decoder — structured logging of Stellar XDR
+// ---------------------------------------------------------------------------
+
+export { decodeXDR } from "./xdrDecoder.js";
+
+// ---------------------------------------------------------------------------
+// SSE Cursor Tracker — persistent cursor for stream resumption
+// ---------------------------------------------------------------------------
+
+export {
+  configureCursorStore,
+  getCursor,
+  setCursor,
+  removeCursor,
+  setCursorFromSnapshot,
+  _resetCursorTrackerForTesting,
+} from "./cursorTracker.js";
+export type { CursorPersistence } from "./cursorTracker.js";
+
+// ---------------------------------------------------------------------------
+// Stream + SSE subscription helpers
+// ---------------------------------------------------------------------------
 
 // Real-time invoice event subscription (Issue #417)
 export { createInvoiceSubscription } from "./subscription.js";
@@ -432,6 +483,12 @@ export type {
   Subscription,
   SubscriptionOptions,
   SubscriptionLifecycleEvent,
+  // New: AMM Calculator
+  PoolSwapEstimate,
+  PoolShareResult,
+  // New: Timeout Escalation
+  EscalationStep,
+  TimeoutPolicy,
 } from "./types.js";
 
 export { analyzeCohorts } from "./cohortAnalyzer.js";
@@ -661,6 +718,7 @@ export {
   buildSponsoredOnboarding,
   MissingSponsorAccountError,
   InsufficientReserveError,
+  checkSponsorshipReserve,
 } from "./sponsorship.js";
 
 export {
@@ -771,6 +829,45 @@ export type {
   ForecastConfig,
   HistoricalInvoiceSample,
 } from "./forecast.js";
+
+// ---------------------------------------------------------------------------
+// Split ratio validator
+// ---------------------------------------------------------------------------
+
+export { validateSplitRatios, validateSplitRatiosOrThrow, ratiosToRecipients } from "./validators/splitRatioValidator.js";
+export type {
+  RecipientShare,
+  SplitConfig,
+  SplitRatioValidationResult,
+} from "./validators/splitRatioValidator.js";
+
+// ---------------------------------------------------------------------------
+// Trustline checker
+// ---------------------------------------------------------------------------
+
+export { checkTrustlines, checkSingleTrustline } from "./trustlineChecker.js";
+export type { TrustlineEntry, TrustlineCheckResult } from "./trustlineChecker.js";
+
+// ---------------------------------------------------------------------------
+// XDR parser
+// ---------------------------------------------------------------------------
+
+export { parseEnvelope } from "./xdrParser.js";
+export type {
+  ParsedEnvelope,
+  ParsedTransaction,
+  ParsedOperation,
+  ParsedMemo,
+  ParsedSignature,
+  ParsedTimeBounds,
+} from "./xdrParser.js";
+
+// ---------------------------------------------------------------------------
+// Fee surge detector
+// ---------------------------------------------------------------------------
+
+export { detectFeeSurge, clearFeeSurgeCache } from "./feeSurgeDetector.js";
+export type { FeeSurgeConfig, FeeRecommendation, CongestionLevel } from "./feeSurgeDetector.js";
 
 export {
   reconcileChannel,
@@ -997,3 +1094,21 @@ export {
   RpcConnectionError,
   isRpcConnectionError,
 } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// #483 — ContractStorageExporter: contract storage entry snapshot exporter
+// ---------------------------------------------------------------------------
+
+export { ContractStorageExporter, scValToJson } from "./diagnostics/ContractStorageExporter.js";
+export type {
+  ContractStorageSnapshot,
+  StorageEntry,
+  StorageDiff,
+  StorageModification,
+  ScValJson,
+  ScValJsonPrimitive,
+  ScValJsonVec,
+  ScValJsonMap,
+  ScValPrimitive,
+  ContractStorageExporterOptions,
+} from "./diagnostics/ContractStorageExporter.js";

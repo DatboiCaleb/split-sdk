@@ -125,6 +125,68 @@ export interface Recipient {
 
 import { StellarSplitError } from "./errors.js";
 
+// ---------------------------------------------------------------------------
+// AMM Calculator Types
+// ---------------------------------------------------------------------------
+
+/** Estimated output and price impact for a pool swap. */
+export interface PoolSwapEstimate {
+  /** Expected output amount in stroops. */
+  outputAmount: string;
+  /** Price impact as a percentage string (e.g. "1.23"). */
+  priceImpactPercent: string;
+  /** Asset being sold into the pool. */
+  inputAsset: string;
+  /** Asset being received from the pool. */
+  outputAsset: string;
+  /** Effective swap price (output / input). */
+  effectivePrice: string;
+  /** Current spot price (reserveOut / reserveIn). */
+  spotPrice: string;
+}
+
+/** Proportional pool share for a given number of LP shares. */
+export interface PoolShareResult {
+  /** Proportional share of the first reserve asset in stroops. */
+  shareOfAssetA: string;
+  /** Proportional share of the second reserve asset in stroops. */
+  shareOfAssetB: string;
+  /** Asset identifier for the first reserve. */
+  assetA: string;
+  /** Asset identifier for the second reserve. */
+  assetB: string;
+  /** Total pool shares outstanding. */
+  totalShares: string;
+  /** Number of shares owned by the user. */
+  sharesOwned: string;
+  /** Ownership percentage (e.g. "5.50"). */
+  ownershipPercent: string;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout Escalation Types
+// ---------------------------------------------------------------------------
+
+/** An escalation step that fires before the final payment deadline. */
+export interface EscalationStep {
+  /** Milliseconds before the deadline when this step triggers. */
+  triggerAtMs: number;
+  /** The action to take at this threshold. */
+  action: "warn" | "retryHigherFee" | "switchEndpoint" | "abort";
+  /** Fee multiplier for `retryHigherFee` action (default 1.5). */
+  feeMultiplier?: number;
+}
+
+/** Policy controlling timeout escalation behaviour. */
+export interface TimeoutPolicy {
+  /** Total deadline in milliseconds. */
+  deadlineMs: number;
+  /** Ordered escalation steps (closest to deadline first). */
+  escalations: EscalationStep[];
+}
+
+
+
 export interface HealthCheckResult {
   rpcReachable: boolean;
   latencyMs: number;
@@ -1153,6 +1215,133 @@ export interface SetCrossChainRefParams {
 }
 
 // ---------------------------------------------------------------------------
+// Sponsorship Configuration
+// ---------------------------------------------------------------------------
+
+/** Configuration for sponsored-reserve onboarding flows. */
+export interface SponsorshipConfig {
+  /** Stellar address of the sponsoring account. */
+  sponsorAddress: string;
+  /** Stellar address of the account being onboarded / sponsored. */
+  sponsoredAddress: string;
+  /** Number of new ledger entries the sponsor will cover. */
+  entryCount: number;
+  /** Optional Horizon URL override for balance checks. */
+  horizonUrl?: string;
+}
+
+/** Result of a pre-submission sponsor reserve check. */
+export interface SponsorReserveCheckResult {
+  /** Whether the sponsor has sufficient XLM reserve. */
+  sufficient: boolean;
+  /** Sponsor's available XLM balance in stroops. */
+  availableStroops: bigint;
+  /** Required XLM reserve in stroops for the new entries. */
+  requiredStroops: bigint;
+  /** Shortfall in stroops (0 if sufficient). */
+  shortfallStroops: bigint;
+}
+
+// ---------------------------------------------------------------------------
+// Invoice Record (expanded with expiresAt for timebounds)
+// ---------------------------------------------------------------------------
+
+/**
+ * Expanded invoice record that includes the expiry timestamp
+ * used for transaction timebounds enforcement.
+ */
+export interface InvoiceRecord {
+  /** Invoice ID. */
+  invoiceId: string;
+  /** Creator address. */
+  creator: string;
+  /** Unix timestamp (seconds) when the invoice expires. */
+  expiresAt: number;
+  /** Current lifecycle status. */
+  status: InvoiceStatus;
+  /** Total amount required. */
+  totalOwed: bigint;
+}
+
+// ---------------------------------------------------------------------------
+// XDR Decoder Types
+// ---------------------------------------------------------------------------
+
+/** Supported XDR types for decoding. */
+export type XDRType =
+  | "TransactionEnvelope"
+  | "TransactionResult"
+  | "TransactionMeta"
+  | "LedgerEntry"
+  | "TransactionV1Envelope"
+  | "FeeBumpTransaction";
+
+/** Decoded TransactionEnvelope as a structured JSON-safe object. */
+export interface DecodedTransactionEnvelope {
+  type: "TransactionEnvelope";
+  tx: {
+    sourceAccount: string;
+    fee: string;
+    seqNum: string;
+    memo?: string;
+    operations: DecodedOperation[];
+    timeBounds?: { minTime: string; maxTime: string };
+  };
+}
+
+/** A single decoded operation within a transaction. */
+export interface DecodedOperation {
+  type: string;
+  sourceAccount?: string;
+  body: Record<string, unknown>;
+}
+
+/** Decoded TransactionResult as a structured JSON-safe object. */
+export interface DecodedTransactionResult {
+  type: "TransactionResult";
+  feeCharged: string;
+  result: {
+    code: string;
+    innerResult?: Record<string, unknown>;
+  };
+}
+
+/** Decoded TransactionMeta as a structured JSON-safe object. */
+export interface DecodedTransactionMeta {
+  type: "TransactionMeta";
+  operations: Array<{
+    changes: Array<{
+      type: string;
+      key: string;
+      before?: Record<string, unknown>;
+      after?: Record<string, unknown>;
+    }>;
+  }>;
+}
+
+/** Decoded LedgerEntry as a structured JSON-safe object. */
+export interface DecodedLedgerEntry {
+  type: "LedgerEntry";
+  lastModifiedLedgerSeq: number;
+  data: {
+    type: string;
+    accountId?: string;
+    balance?: string;
+    flags?: number;
+    signers?: Array<{ key: string; weight: number }>;
+    thresholds?: { low: number; med: number; high: number };
+    [key: string]: unknown;
+  };
+}
+
+/** Union type of all decoded XDR variants. */
+export type DecodedXDR =
+  | DecodedTransactionEnvelope
+  | DecodedTransactionResult
+  | DecodedTransactionMeta
+  | DecodedLedgerEntry;
+
+// ---------------------------------------------------------------------------
 // Confidential Payment Types (Pedersen Commitments)
 // ---------------------------------------------------------------------------
 
@@ -1323,77 +1512,138 @@ export interface SignedBridgeProof {
 }
 
 // ---------------------------------------------------------------------------
-// Split payment & DEX pathfinding types
+// Memo Builder Types
 // ---------------------------------------------------------------------------
 
-/** Configuration for a split payment specifying the source/payment asset. */
+/**
+ * Configuration for the split memo builder, defining the version of the split
+ * protocol used when encoding memo data.
+ */
 export interface SplitConfig {
-  /** Asset the payer will use to fund the split payment (e.g. "native" or "USDC:G..."). */
-  paymentAsset: string;
-  /** Optional maximum slippage in basis points (1 bps = 0.01%). Default: 50 (0.5%). */
-  maxSlippageBps?: number;
+  /** Protocol version number for the split memo format. */
+  version: number;
 }
 
-/** Individual recipient share in a cross-asset split payment. */
-export interface RecipientShare {
-  /** Stellar address of the recipient. */
-  address: string;
-  /** Amount owed to this recipient in the asset's base units. */
+/**
+ * Parsed representation of a canonical StellarSplit memo.
+ */
+export interface ParsedMemo {
+  /** The invoice ID extracted from the memo. */
+  invoiceId: string;
+  /** The split protocol version encoded in the memo. */
+  version: number;
+  /** The payer's Stellar address suffix (last 8 chars) used for identification. */
+  payerId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Asset Issuer Verification Types
+// ---------------------------------------------------------------------------
+
+/** Result of verifying an asset issuer's on-chain identity and metadata. */
+export interface IssuerVerificationResult {
+  /** Whether the issuer passed all verification checks. */
+  verified: boolean;
+  /** The issuer account ID that was checked. */
+  issuerId: string;
+  /** Whether the issuer account exists on the network. */
+  accountExists: boolean;
+  /** The home domain claimed by the issuer account, if any. */
+  homeDomain: string | null;
+  /** Whether a valid stellar.toml was found at the home domain. */
+  tomlFound: boolean;
+  /** Whether the asset code was listed in the CURRENCIES section of the toml. */
+  assetInToml: boolean;
+  /** The asset code that was verified against the toml. */
+  assetCode: string | null;
+  /** List of human-readable failure reasons when verified is false. */
+  errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// SEP-24 Interactive Transfer Types
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status of a SEP-24 interactive transfer. */
+export type Sep24Status =
+  | "incomplete"
+  | "pending_user_transfer_start"
+  | "pending_anchor"
+  | "pending_stellar"
+  | "pending_external"
+  | "completed"
+  | "error"
+  | "refunded";
+
+/** A record tracking a single SEP-24 interactive deposit or withdrawal. */
+export interface Sep24TransactionRecord {
+  /** SEP-24 transaction ID returned by the anchor. */
+  id: string;
+  /** Type of transfer: deposit or withdrawal. */
+  kind: "deposit" | "withdrawal";
+  /** Current lifecycle status. */
+  status: Sep24Status;
+  /** Amount requested in the transfer (in stroops). */
   amount: bigint;
-  /** Asset the recipient expects to receive (e.g. "USDC:G..."). */
-  receiveAsset: string;
+  /** Asset code (e.g., "USDC"). */
+  assetCode: string;
+  /** The anchor's Stellar address for the asset issuer. */
+  assetIssuer: string;
+  /** The interactive IFRAME URL the user should visit. */
+  interactiveUrl: string | null;
+  /** Stellar transaction ID once the transfer completes on-chain. */
+  stellarTxId: string | null;
+  /** Unix timestamp when the transaction was initiated. */
+  startedAt: number;
+  /** Unix timestamp of the last status update. */
+  updatedAt: number;
+  /** Anchor service endpoint used for this transfer. */
+  anchorUrl: string;
+  /** Optional KYC/verification URL if required by the anchor. */
+  kycUrl: string | null;
+  /** Optional human-readable error message when status is "error". */
+  errorMessage: string | null;
+}
+
+/** Event emitted when a SEP-24 transaction status changes. */
+export interface Sep24StatusChangedEvent {
+  /** The transaction record with updated status. */
+  transaction: Sep24TransactionRecord;
+  /** The previous status before this change. */
+  previousStatus: Sep24Status;
 }
 
 // ---------------------------------------------------------------------------
-// Offer tracking types
+// Horizon Paginator Types
 // ---------------------------------------------------------------------------
 
-/** The lifecycle status of a tracked DEX offer. */
-export type OfferStatus = "open" | "partially_filled" | "filled" | "cancelled" | "stale";
-
-/** A DEX offer tracked by the OfferTracker. */
-export interface OfferRecord {
-  /** Stellar offer ID (u64 from Horizon). */
-  offerId: string;
-  /** Stellar address of the account that owns the offer. */
-  account: string;
-  /** Asset being sold (e.g. "native" or "USDC:G..."). */
-  selling: string;
-  /** Asset being bought (e.g. "native" or "USDC:G..."). */
-  buying: string;
-  /** Amount of the selling asset still available on the order book. */
-  amount: string;
-  /** Offer price as a ratio string (e.g. "2.5"). */
-  price: string;
-  /** Current lifecycle status. */
-  status: OfferStatus;
-  /** Unix timestamp in milliseconds when the offer was created. */
-  createdAt: number;
+/**
+ * Minimal interface for a Horizon collection page that supports
+ * cursor-based pagination via a .next() method.
+ */
+export interface CollectionPage<T> {
+  /** Records in the current page. */
+  records: T[];
+  /** Fetch the next page, or return null when exhausted. */
+  next(): Promise<CollectionPage<T> | null>;
 }
 
-// ---------------------------------------------------------------------------
-// Claimable balance lifecycle types
-// ---------------------------------------------------------------------------
+/** Configuration options for the horizon paginator. */
+export interface HorizonPaginatorOptions {
+  /** Maximum number of records to yield across all pages. Default: unlimited. */
+  maxRecords?: number;
+  /** Optional cursor store for persisting the last-seen paging token. */
+  cursorStore?: CursorStore;
+  /** Optional namespace for cursor storage keys (default: "horizon"). */
+  cursorNamespace?: string;
+}
 
-/** Status of a claimable balance in its lifecycle. */
-export type ClaimableBalanceStatus = "created" | "claimed" | "expired";
-
-/** A claimable balance record tracked through its lifecycle. */
-export interface ClaimableBalanceRecord {
-  /** Stellar claimable balance ID. */
-  balanceId: string;
-  /** Stellar address of the claimant. */
-  claimant: string;
-  /** Asset descriptor (e.g. "native" or "USDC:G..."). */
-  asset: string;
-  /** Amount in the asset's base unit. */
-  amount: string;
-  /** Current lifecycle status. */
-  status: ClaimableBalanceStatus;
-  /** Unix timestamp in milliseconds when the balance was created. */
-  createdAt: number;
-  /** Unix timestamp in milliseconds when the balance was claimed (or null). */
-  claimedAt: number | null;
-  /** Predicate expiry ledger, if applicable. */
-  predicateExpiryLedger?: number;
+/** Persistence interface for cursor tracking. */
+export interface CursorStore {
+  /** Save a cursor value under a named key. */
+  save(key: string, cursor: string): Promise<void>;
+  /** Load a previously saved cursor value, or null if not found. */
+  load(key: string): Promise<string | null>;
+  /** Delete a saved cursor. */
+  delete(key: string): Promise<void>;
 }

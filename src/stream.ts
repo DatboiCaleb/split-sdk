@@ -2,6 +2,7 @@ import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import type { InvoiceEventCallbacks, Payment } from "./types.js";
 import type { SSEInvoiceEvent } from "./sse.js";
 import { TooManySubscriptionsError } from "./errors.js";
+import { getCursor, setCursor } from "./cursorTracker.js";
 
 /** Maximum concurrent subscriptions allowed. */
 const MAX_SUBSCRIPTIONS = 10;
@@ -126,6 +127,16 @@ export function subscribeToInvoice(
   handlerOrCallbacks: ((events: SSEInvoiceEvent[]) => void) | InvoiceEventCallbacks,
   intervalMs: number = 5000
 ): () => void {
+  // Resume from last persisted cursor when available.
+  const streamId = `contract:${contractId}:invoice:${invoiceId}`;
+  const storedCursor = getCursor(streamId);
+  let resumeLedger: number | undefined;
+  if (storedCursor) {
+    const parsed = parseInt(storedCursor, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      resumeLedger = parsed;
+    }
+  }
   // Check subscription limit
   if (subscriptionCount >= MAX_SUBSCRIPTIONS) {
     throw new TooManySubscriptionsError(MAX_SUBSCRIPTIONS);
@@ -177,8 +188,12 @@ export function subscribeToInvoice(
 
     try {
       if (lastLedger === null) {
-        const latest = await server.getLatestLedger();
-        lastLedger = latest.sequence;
+        if (resumeLedger !== undefined) {
+          lastLedger = resumeLedger;
+        } else {
+          const latest = await server.getLatestLedger();
+          lastLedger = latest.sequence;
+        }
       }
 
       const response = await server.getEvents({
@@ -245,6 +260,13 @@ export function subscribeToInvoice(
       }
 
       lastLedger = maxLedger + 1;
+
+      // Persist the latest processed ledger as the cursor for resume-on-restart.
+      try {
+        setCursor(streamId, String(lastLedger));
+      } catch {
+        // Best-effort cursor persistence
+      }
     } catch {
       // Silently continue on network errors
     }
