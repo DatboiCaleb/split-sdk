@@ -1,4 +1,4 @@
-import type { Invoice } from "./types.js";
+import type { Invoice, RecipientShare } from "./types.js";
 import { isExpired } from "./utils.js";
 import { deduplicateRecipients } from "./validators/recipientDeduplicator.js";
 
