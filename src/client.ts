@@ -195,7 +195,12 @@ import {
   StellarSplitError,
   AdminOperationError,
   PassphraseMismatchError,
+  InvoiceIntegrityError,
+  InvalidTransactionTypeError,
 } from "./errors.js";
+import { hashInvoice, verifyInvoiceHash } from "./invoiceHashVerifier.js";
+import { buildFeeBump } from "./feeBumpBuilder.js";
+import type { FeeBumpConfig } from "./feeBumpBuilder.js";
 import { replayEvents } from "./events.js";
 import { subscribeToInvoice as _subscribeToInvoice } from "./stream.js";
 import { subscribeToInvoice as _subscribeToInvoiceSSE } from "./sse.js";
@@ -2047,7 +2052,18 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
     donateOnFailure?: boolean;
     waterfallPlan?: WaterfallPlan;
     allowPartial?: boolean;
+    expectedContentHash?: string;
   }): Promise<TxResult> {
+    // Verify invoice content hash if provided (integrity check)
+    if (params.expectedContentHash) {
+      const invoice = await this.getInvoice(params.invoiceId);
+      const valid = await verifyInvoiceHash(invoice, params.expectedContentHash);
+      if (!valid) {
+        const computed = await hashInvoice(invoice);
+        throw new InvoiceIntegrityError(params.invoiceId, params.expectedContentHash, computed);
+      }
+    }
+
     if (!params.waterfallPlan) {
       return this.pay({
         payer: params.payer,
@@ -6400,6 +6416,89 @@ export class StellarSplitClient extends TypedEventEmitter<SplitClientEventMap> {
       this._adapter = null;
       this.emit("wallet:disconnected", { walletName });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Invoice Hash Verification
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verify that an invoice's content hash matches the expected hash,
+   * detecting tampering between creation and payment.
+   *
+   * @param invoice - The invoice to verify.
+   * @param expectedHash - Previously computed content hash.
+   * @returns `true` when hashes match.
+   * @throws InvoiceIntegrityError when hashes diverge.
+   */
+  async verifyInvoice(invoice: Invoice, expectedHash: string): Promise<boolean> {
+    const valid = await verifyInvoiceHash(invoice, expectedHash);
+    if (!valid) {
+      const computed = await hashInvoice(invoice);
+      throw new InvoiceIntegrityError(invoice.id, expectedHash, computed);
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fee Bump Submission
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build and submit a fee bump transaction wrapping an inner transaction
+   * signed by a recipient who cannot pay their own fee.
+   *
+   * @param innerTxXdr - Base-64 XDR of the inner signed transaction.
+   * @param feeSource  - Stellar address of the account paying the fee.
+   * @param baseFee    - Base fee in stroops.
+   * @param config     - Optional surge multiplier config.
+   * @returns The fee bump transaction hash.
+   */
+  async submitWithFeeBump(
+    innerTxXdr: string,
+    feeSource: string,
+    baseFee?: string,
+    config?: FeeBumpConfig,
+  ): Promise<TxResult> {
+    const innerTx = TransactionBuilder.fromXDR(
+      innerTxXdr,
+      this.config.networkPassphrase,
+    ) as Transaction;
+
+    const effectiveBaseFee = baseFee ?? BASE_FEE;
+    const feeBumpTx = buildFeeBump(innerTx, feeSource, effectiveBaseFee, this.config.networkPassphrase, config);
+
+    const signedXdr = await (this._adapter
+      ? this._adapter.signTransaction(feeBumpTx.toXDR(), this.config.networkPassphrase)
+      : signTransaction(feeBumpTx.toXDR(), this.config.networkPassphrase));
+
+    const sendResult = await this.server.sendTransaction(
+      TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase),
+    );
+
+    if (sendResult.status === "ERROR") {
+      throw new TransactionFailedError(
+        `Fee bump transaction failed: ${JSON.stringify(sendResult.errorResult)}`,
+      );
+    }
+
+    const txHash = sendResult.hash;
+    let getResult = await this.server.getTransaction(txHash);
+    let attempts = 0;
+    while (
+      getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+      attempts < 20
+    ) {
+      await new Promise((r) => setTimeout(r, 1500));
+      getResult = await this.server.getTransaction(txHash);
+      attempts++;
+    }
+
+    if (getResult.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      throw new TransactionNotConfirmedError(String(getResult.status));
+    }
+
+    return { txHash };
   }
 }
 
