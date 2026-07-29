@@ -2,6 +2,8 @@
  * SSE-based real-time invoice event subscription.
  */
 
+import { getCursor, setCursor } from "./cursorTracker.js";
+
 /** The three event types emitted by the invoice SSE stream. */
 export type SSEInvoiceEventType =
   | "payment_received"
@@ -53,6 +55,10 @@ const SSE_EVENT_TYPES: SSEInvoiceEventType[] = [
  * `SSEInvoiceEvent` objects to `handler`. Reconnects automatically with
  * exponential backoff on connection drops.
  *
+ * When a cursor has been persisted (via {@link cursorTracker.setCursor}),
+ * the SSE URL includes a `cursor` query parameter so the server can resume
+ * from the last processed event after a restart.
+ *
  * @returns An unsubscribe function that permanently stops the subscription.
  */
 export function subscribeToInvoice(
@@ -67,7 +73,11 @@ export function subscribeToInvoice(
     eventSourceFactory,
   } = options;
 
-  const url = `${baseUrl}/invoices/${encodeURIComponent(invoiceId)}/events`;
+  // Build URL with persisted cursor for resume-on-restart.
+  const streamId = `sse:invoice:${invoiceId}`;
+  const storedCursor = getCursor(streamId);
+  const cursorParam = storedCursor ? `?cursor=${encodeURIComponent(storedCursor)}` : "";
+  const url = `${baseUrl}/invoices/${encodeURIComponent(invoiceId)}/events${cursorParam}`;
   const factory =
     eventSourceFactory ??
     ((u: string) => new EventSource(u) as EventSourceLike);
@@ -100,6 +110,14 @@ export function subscribeToInvoice(
         }
 
         backoff = initialBackoffMs; // reset on successful message
+
+        // Persist event timestamp as cursor for resume-on-restart.
+        try {
+          const eventTs = Date.now().toString();
+          setCursor(streamId, eventTs);
+        } catch {
+          // Best-effort cursor persistence
+        }
 
         handler({
           type: raw.type as SSEInvoiceEventType,

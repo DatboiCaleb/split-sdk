@@ -356,6 +356,16 @@ export type {
   AdminFreezeResult,
   AdminUnfreezeResult,
   TransitionRecord,
+  SponsorshipConfig,
+  SponsorReserveCheckResult,
+  InvoiceRecord,
+  XDRType,
+  DecodedXDR,
+  DecodedTransactionEnvelope,
+  DecodedTransactionResult,
+  DecodedTransactionMeta,
+  DecodedLedgerEntry,
+  DecodedOperation,
 } from "./types.js";
 export { InvalidTransitionError } from "./types.js";
 
@@ -383,10 +393,34 @@ export type { RpcClient } from "./rpcClient.js";
 export { negotiateVersion, SDK_CONTRACT_VERSION } from "./version.js";
 export type { VersionInfo } from "./types.js";
 
-export { checkPayerReadiness } from "./preflightChecker.js";
-export type { PayerReadinessResult, PayerReadinessReason } from "./preflightChecker.js";
+export { checkPayerReadiness, checkInvoiceExpiry, checkSponsorReserve } from "./preflightChecker.js";
+export type { PayerReadinessResult, PayerReadinessReason, InvoiceExpiryResult, InvoiceExpiryReason, SponsorReserveCheck } from "./preflightChecker.js";
 
 export { getSuggestion } from "./errorSuggestions.js";
+
+// ---------------------------------------------------------------------------
+// XDR Decoder — structured logging of Stellar XDR
+// ---------------------------------------------------------------------------
+
+export { decodeXDR } from "./xdrDecoder.js";
+
+// ---------------------------------------------------------------------------
+// SSE Cursor Tracker — persistent cursor for stream resumption
+// ---------------------------------------------------------------------------
+
+export {
+  configureCursorStore,
+  getCursor,
+  setCursor,
+  removeCursor,
+  setCursorFromSnapshot,
+  _resetCursorTrackerForTesting,
+} from "./cursorTracker.js";
+export type { CursorPersistence } from "./cursorTracker.js";
+
+// ---------------------------------------------------------------------------
+// Stream + SSE subscription helpers
+// ---------------------------------------------------------------------------
 
 // Real-time invoice event subscription (Issue #417)
 export { createInvoiceSubscription } from "./subscription.js";
@@ -664,6 +698,7 @@ export {
   buildSponsoredOnboarding,
   MissingSponsorAccountError,
   InsufficientReserveError,
+  checkSponsorshipReserve,
 } from "./sponsorship.js";
 
 export {
