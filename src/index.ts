@@ -87,7 +87,12 @@ export {
   TrancheProgressError,
   RefundGraceError,
   ChannelReconciliationError,
-  isStellarSplitError,
+  SequenceCacheError,
+  SequenceNumberTooOldError,
+  PathNotFoundError,
+  PathRouterError,
+  OfferTrackingError,
+  ClaimableBalanceLifecycleError,
   isInvoiceNotFoundError,
   isInvoiceNotPendingError,
   isDeadlinePassedError,
@@ -144,6 +149,12 @@ export {
   isTrancheProgressError,
   isRefundGraceError,
   isChannelReconciliationError,
+  isSequenceCacheError,
+  isSequenceNumberTooOldError,
+  isPathNotFoundError,
+  isPathRouterError,
+  isOfferTrackingError,
+  isClaimableBalanceLifecycleError,
   TooManySubscriptionsError,
   isTooManySubscriptionsError,
   RequestTimeoutError,
@@ -300,6 +311,15 @@ export { watchExpiry } from "./watcher.js";
 export { DeadlineEngine } from "./deadlineEngine.js";
 
 export { StellarSplitTxBuilder } from "./txBuilder.js";
+
+export { SequenceCache, isSequenceTooOld } from "./sequenceCache.js";
+export type { SequenceCacheConfig } from "./sequenceCache.js";
+
+export { PathRouter } from "./pathRouter.js";
+export type { PathResult, PathHop, PathRequest, PathRouterConfig } from "./pathRouter.js";
+
+export { OfferTracker } from "./offerTracker.js";
+export type { OfferTrackerConfig, OfferTrackerEventMap } from "./offerTracker.js";
 
 export { SimpleCache } from "./cache.js";
 export { Recorder, createRecorder } from "./recorder.js";
@@ -743,10 +763,13 @@ export {
   createClaimableRefund,
   getClaimableRefunds,
   isRefundTransferError,
+  ClaimableBalanceLifecycle,
 } from "./claimableBalanceFallback.js";
 export type {
   ClaimableRefundResult,
   ClaimableRefundEntry,
+  ClaimableBalanceLifecycleConfig,
+  ClaimableBalanceLifecycleEventMap,
 } from "./claimableBalanceFallback.js";
 
 export { subscribeToInvoice } from "./sse.js";

@@ -7,6 +7,8 @@ import {
   xdr,
   Account,
   Transaction,
+  Asset,
+  Operation,
 } from "@stellar/stellar-sdk";
 import type { StellarSplitClientConfig } from "./client.js";
 import { signTransaction } from "./wallet.js";
@@ -85,6 +87,52 @@ export class StellarSplitTxBuilder {
   }
 
   /**
+   * Add a PathPaymentStrictSend operation for cross-asset DEX-routed payments.
+   */
+  addPathPaymentStrictSend(
+    sendAsset: Asset,
+    sendAmount: string,
+    destination: string,
+    destAsset: Asset,
+    destMin: string,
+    path: Asset[],
+  ): this {
+    const op = Operation.pathPaymentStrictSend({
+      sendAsset,
+      sendAmount,
+      destination,
+      destAsset,
+      destMin,
+      path,
+    });
+    this.operations.push(op);
+    return this;
+  }
+
+  /**
+   * Add a PathPaymentStrictReceive operation for cross-asset DEX-routed payments.
+   */
+  addPathPaymentStrictReceive(
+    sendAsset: Asset,
+    sendMax: string,
+    destination: string,
+    destAsset: Asset,
+    destAmount: string,
+    path: Asset[],
+  ): this {
+    const op = Operation.pathPaymentStrictReceive({
+      sendAsset,
+      sendMax,
+      destination,
+      destAsset,
+      destAmount,
+      path,
+    });
+    this.operations.push(op);
+    return this;
+  }
+
+  /**
    * Build an unsigned Transaction using a fallback source account (sequence 0).
    * This is synchronous and suitable for offline signing or inspection.
    *
@@ -97,7 +145,7 @@ export class StellarSplitTxBuilder {
     const invoiceId = options?.invoiceId ?? "unknown";
     const sourceAccount = ({
       accountId: () => this.sourceAddress,
-      sequenceNumber: () => "0",
+      sequenceNumber: () => sequence,
       incrementSequenceNumber: () => {},
     } as unknown) as Account;
 
