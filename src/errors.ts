@@ -1461,79 +1461,121 @@ export function isIPFSConfigError(err: unknown): err is IPFSConfigError {
 }
 
 // ---------------------------------------------------------------------------
-// Invoice Hash Verifier errors
+// AMM Calculator errors
 // ---------------------------------------------------------------------------
 
-/** Thrown when invoice content hash verification fails (tampering detected). */
-export class InvoiceIntegrityError extends StellarSplitError {
+/**
+ * Thrown when swap input exceeds a configurable ratio of pool reserves,
+ * or when pool reserves are zero / insufficient.
+ */
+export class InsufficientLiquidityError extends StellarSplitError {
+  readonly reserveAmount: string;
+  readonly inputAmount: string;
+
+  constructor(message: string, reserveAmount: string, inputAmount: string) {
+    super(message, "INSUFFICIENT_LIQUIDITY", { reserveAmount, inputAmount }, message);
+    this.name = "InsufficientLiquidityError";
+    this.reserveAmount = reserveAmount;
+    this.inputAmount = inputAmount;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export function isInsufficientLiquidityError(err: unknown): err is InsufficientLiquidityError {
+  return err instanceof InsufficientLiquidityError;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout Escalation errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the `abort` escalation step fires, cancelling the payment.
+ */
+export class PaymentEscalationAbortError extends StellarSplitError {
   readonly invoiceId: string;
-  readonly expectedHash: string;
-  readonly computedHash: string;
+  readonly remainingMs: number;
 
-  constructor(invoiceId: string, expectedHash: string, computedHash: string) {
+  constructor(invoiceId: string, remainingMs: number) {
     super(
-      `Invoice integrity check failed for ${invoiceId}: hash mismatch (expected ${expectedHash.slice(0, 8)}..., got ${computedHash.slice(0, 8)}...)`,
-      "INVOICE_INTEGRITY_ERROR",
-      { invoiceId, expectedHash, computedHash },
+      `Payment escalation aborted for invoice ${invoiceId} with ${remainingMs}ms remaining`,
+      "PAYMENT_ESCALATION_ABORT",
+      { invoiceId, remainingMs }
     );
-    this.name = "InvoiceIntegrityError";
+    this.name = "PaymentEscalationAbortError";
     this.invoiceId = invoiceId;
-    this.expectedHash = expectedHash;
-    this.computedHash = computedHash;
+    this.remainingMs = remainingMs;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-export function isInvoiceIntegrityError(err: unknown): err is InvoiceIntegrityError {
-  return err instanceof InvoiceIntegrityError;
+export function isPaymentEscalationAbortError(err: unknown): err is PaymentEscalationAbortError {
+  return err instanceof PaymentEscalationAbortError;
 }
 
 // ---------------------------------------------------------------------------
-// Fee Bump Builder errors
+// Recipient Deduplicator errors
 // ---------------------------------------------------------------------------
 
-/** Thrown when a v0 transaction is passed to buildFeeBump (only v1 supported). */
-export class InvalidTransactionTypeError extends StellarSplitError {
-  readonly txType: string;
+/**
+ * Thrown when duplicate recipient account IDs are detected in `reject` mode.
+ */
+export class DuplicateRecipientError extends StellarSplitError {
+  readonly duplicateAddresses: string[];
 
-  constructor(txType: string) {
+  constructor(duplicateAddresses: string[]) {
     super(
-      `Invalid transaction type: expected v1 envelope, got ${txType}`,
-      "INVALID_TRANSACTION_TYPE",
-      { txType },
+      `Duplicate recipient addresses detected: ${duplicateAddresses.join(", ")}`,
+      "DUPLICATE_RECIPIENT",
+      { duplicateAddresses }
     );
-    this.name = "InvalidTransactionTypeError";
-    this.txType = txType;
+    this.name = "DuplicateRecipientError";
+    this.duplicateAddresses = duplicateAddresses;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-export function isInvalidTransactionTypeError(err: unknown): err is InvalidTransactionTypeError {
-  return err instanceof InvalidTransactionTypeError;
+export function isDuplicateRecipientError(err: unknown): err is DuplicateRecipientError {
+  return err instanceof DuplicateRecipientError;
 }
 
 // ---------------------------------------------------------------------------
-// Currency Normalizer errors
+// Horizon Error Classification Types
 // ---------------------------------------------------------------------------
 
-/** Thrown when amount conversion would lose sub-unit precision. */
-export class PrecisionError extends StellarSplitError {
-  readonly amount: string;
-  readonly asset: string;
+/** Structured classification of a Horizon transaction/operation result code. */
+export interface HorizonErrorClassification {
+  /** The primary result code string. */
+  code: string;
+  /** Whether the error is safe to retry. */
+  isRetryable: boolean;
+  /** Severity level of the error. */
+  severity: "low" | "medium" | "high" | "critical" | "unknown";
+  /** Human-readable description of what went wrong. */
+  description: string;
+  /** Recommended action for the caller to take. */
+  suggestedAction: string;
+  /** The specific operation result code, if available. */
+  operationCode?: string;
+}
 
-  constructor(amount: string, asset: string, details?: string) {
-    super(
-      `Precision loss converting ${amount} for asset ${asset}${details ? `: ${details}` : ""}`,
-      "PRECISION_ERROR",
-      { amount, asset, details },
-    );
-    this.name = "PrecisionError";
-    this.amount = amount;
-    this.asset = asset;
+/**
+ * Wraps a classified Horizon error with the structured classification.
+ */
+export class ClassifiedHorizonError extends StellarSplitError {
+  readonly classification: HorizonErrorClassification;
+
+  constructor(
+    message: string,
+    classification: HorizonErrorClassification
+  ) {
+    super(message, "CLASSIFIED_HORIZON_ERROR", { classification });
+    this.name = "ClassifiedHorizonError";
+    this.classification = classification;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-export function isPrecisionError(err: unknown): err is PrecisionError {
-  return err instanceof PrecisionError;
+export function isClassifiedHorizonError(err: unknown): err is ClassifiedHorizonError {
+  return err instanceof ClassifiedHorizonError;
 }

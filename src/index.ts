@@ -168,12 +168,19 @@ export {
   isIPFSConfigError,
   ShutdownInProgressError,
   isShutdownInProgressError,
-  InvoiceIntegrityError,
-  isInvoiceIntegrityError,
-  InvalidTransactionTypeError,
-  isInvalidTransactionTypeError,
-  PrecisionError,
-  isPrecisionError,
+  // New: AMM Calculator
+  InsufficientLiquidityError,
+  isInsufficientLiquidityError,
+  // New: Timeout Escalation
+  PaymentEscalationAbortError,
+  isPaymentEscalationAbortError,
+  // New: Recipient Deduplicator
+  DuplicateRecipientError,
+  isDuplicateRecipientError,
+  // New: Horizon Error Classifier
+  ClassifiedHorizonError,
+  isClassifiedHorizonError,
+  HorizonErrorClassification,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -267,6 +274,16 @@ export { connectWallet, getPublicKey, signTransaction } from "./wallet.js";
 
 export { checkRPCHealth } from "./health.js";
 export { FallbackChain, FallbackExhaustedError } from "./fallbackChain.js";
+
+// AMM Calculator
+export { estimateSwapOutput, calculatePoolShare } from "./ammCalculator.js";
+
+// Recipient Deduplicator
+export { deduplicateRecipients } from "./validators/recipientDeduplicator.js";
+export type { DedupMode } from "./validators/recipientDeduplicator.js";
+
+// Horizon Error Classifier
+export { classifyHorizonError, isHorizonErrorRetryable } from "./horizonErrorClassifier.js";
 export { groupInvoicesByPattern } from "./smartGrouping.js";
 export type { InvoiceCluster } from "./smartGrouping.js";
 
@@ -352,8 +369,8 @@ export type {
 export type { StateMachineConfig, TransitionGraph } from "./types/state.js";
 
 // Per-method timeout (Issue #1)
-export { TimeoutManager, withTimeout, RequestTimeoutError as TimeoutError } from "./timeout.js";
-export type { TimeoutConfig } from "./timeout.js";
+export { TimeoutManager, withTimeout, EscalationManager, RequestTimeoutError as TimeoutError } from "./timeout.js";
+export type { TimeoutConfig, EscalationEvent, EscalationCallback } from "./timeout.js";
 
 // Trace IDs (Issue #2)
 export { TraceIdManager, globalTraceIdManager } from "./traceId.js";
@@ -412,6 +429,12 @@ export type {
   Subscription,
   SubscriptionOptions,
   SubscriptionLifecycleEvent,
+  // New: AMM Calculator
+  PoolSwapEstimate,
+  PoolShareResult,
+  // New: Timeout Escalation
+  EscalationStep,
+  TimeoutPolicy,
 } from "./types.js";
 
 export { analyzeCohorts } from "./cohortAnalyzer.js";
@@ -976,37 +999,19 @@ export {
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
-// Invoice hash verification
+// #483 — ContractStorageExporter: contract storage entry snapshot exporter
 // ---------------------------------------------------------------------------
 
-export { hashInvoice, verifyInvoiceHash } from "./invoiceHashVerifier.js";
-export type { InvoiceRecord } from "./invoiceHashVerifier.js";
-
-// ---------------------------------------------------------------------------
-// Fee bump builder
-// ---------------------------------------------------------------------------
-
-export { buildFeeBump, feeBumpToXDR, describeFeeBump } from "./feeBumpBuilder.js";
-export type { FeeBumpConfig } from "./feeBumpBuilder.js";
-
-// ---------------------------------------------------------------------------
-// Currency normalizer
-// ---------------------------------------------------------------------------
-
-export {
-  normalizeAmount,
-  toOnChainAmount,
-  getAssetPrecision,
-  registerAssetPrecision,
-  verifyRoundTrip,
-} from "./currencyNormalizer.js";
-
-// ---------------------------------------------------------------------------
-// Invoice status poller
-// ---------------------------------------------------------------------------
-
-export { InvoiceStatusPoller } from "./poller.js";
+export { ContractStorageExporter, scValToJson } from "./diagnostics/ContractStorageExporter.js";
 export type {
-  InvoiceStatusPollerOptions,
-  InvoiceStatusPollerEventMap,
-} from "./poller.js";
+  ContractStorageSnapshot,
+  StorageEntry,
+  StorageDiff,
+  StorageModification,
+  ScValJson,
+  ScValJsonPrimitive,
+  ScValJsonVec,
+  ScValJsonMap,
+  ScValPrimitive,
+  ContractStorageExporterOptions,
+} from "./diagnostics/ContractStorageExporter.js";
